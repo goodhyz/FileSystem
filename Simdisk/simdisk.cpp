@@ -37,6 +37,17 @@ struct SuperBlock {
         ifs.close();
         return sb;
     }
+
+    // 成员函数：返回文件系统信息
+    // 统计总目录数和总文件数
+    void print_super_block() const {
+        std::cout << "文件系统大小: " << fs_size << "Bytes" << std::endl;
+        std::cout << "总块数: " << block_size << "Bytes" << std::endl;
+        std::cout << "可用块数: " << free_blocks << std::endl;
+        std::cout << "总inode数: " << inode_count << std::endl;
+        std::cout << "可用inode数: " << free_inodes << std::endl;
+        std::cout << "more..."<< std::endl;
+    }
 };
 
 // inode位图
@@ -190,7 +201,7 @@ struct IndexBlock {
     uint32_t block_id;
     uint32_t next_index;
     uint32_t index[254];
-    IndexBlock(uint32_t id ) {
+    IndexBlock(uint32_t id) {
         memset(index, UINT32_MAX, sizeof(index));
         next_index = UINT32_MAX;
         block_id = id;
