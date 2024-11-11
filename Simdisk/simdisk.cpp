@@ -115,8 +115,9 @@ struct DirBlock
         entries[1].set(parent_inode_id, 0, ".."); // 父目录,如何得到父目录的inode_id？设置一个当前目录吗?
     }
 };
+
 // 索引数据块
-//  保留256个索引，设置一个作为更高一级索引
+// 保留256个索引，设置最后一个作为更高一级索引
 struct IndexBlock
 {
     uint32_t index[256];
