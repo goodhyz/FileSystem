@@ -1,16 +1,16 @@
 /*
 调试用的代码
 */
-#include <iostream>
-#include <fstream>
-#include <cstdint>
-#include <ctime>
-#include <string>
-#include <cstring>
-#include <bitset>
-#include <vector>
-#include <iomanip>
 #include "simdisk.h"
+#include <bitset>
+#include <cstdint>
+#include <cstring>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <string>
+#include <vector>
 
 using namespace std;
 void print_block(const std::string &filename, std::streampos block_num) {
@@ -27,8 +27,15 @@ void print_block(const std::string &filename, std::streampos block_num) {
     std::cout << std::dec; // 恢复为十进制格式
     file.close();
 }
-int main(){
-    print_block(disk_path, 16);
-    cout<<static_cast<uint32_t>(-1)<<endl;
+// 第一块（idx=0）作为超级块，数据块位图和inode位图。
+// 一共102400个数据块，分配13个块（idx =1到 idx=13)作为数据块位图
+// idx=16到idx=579表示inode相关数据
+// idx=14到idx=15为inode位图
+// idx=580到idx=599置0，便于扩展
+// idx>=600块其为存储信息的数据块
+
+int main() {
+    print_block(disk_path, 600);
+    cout << static_cast<uint32_t>(-1) << endl;
     return 0;
 }
