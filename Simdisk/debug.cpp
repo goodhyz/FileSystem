@@ -10,8 +10,9 @@
 #include <bitset>
 #include <vector>
 #include <iomanip>
-#include <simdisk.h>
+#include "simdisk.h"
 
+using namespace std;
 void print_block(const std::string &filename, std::streampos block_num) {
     std::ifstream file(filename, std::ios::binary);
     file.seekg(block_num * BLOCK_SIZE);
@@ -27,6 +28,7 @@ void print_block(const std::string &filename, std::streampos block_num) {
     file.close();
 }
 int main(){
-    print_block(disk_path, 0);
+    print_block(disk_path, 16);
+    cout<<static_cast<uint32_t>(-1)<<endl;
     return 0;
 }
