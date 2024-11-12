@@ -283,18 +283,59 @@ std::string format_time(uint32_t raw_time) {
     return std::string(local_buffer);
 }
 
-int main() {
-    // init_disk();
-    using namespace std;
-    Inode root_inode = Inode::read_inode(0);
-    cout << "root_inode.i_id: " << root_inode.i_id << endl;
-    IndexBlock root_ib = IndexBlock::read_index_block(root_inode.i_indirect);
-    cout << "root_ib.block_id: " << root_ib.block_id << endl;
-    DirBlock root_db = DirBlock::read_dir_block(root_ib.index[0]);
-    cout << "root_db.entries[0].inode_id: " << root_db.entries[0].inode_id << endl;
-    cout << "root_db.entries[0].type: " << root_db.entries[0].type << endl;
-    cout << "root_db.entries[0].name: " << root_db.entries[0].name << endl;
-    cout << "root_db.entries[1].inode_id: " << root_db.entries[1].inode_id << endl;
-    cout << "root_db.entries[1].type: " << root_db.entries[1].type << endl;
-    cout << "root_db.entries[1].name: " << root_db.entries[1].name << endl;
+// int main() {
+//     // init_disk();
+//     using namespace std;
+//     Inode root_inode = Inode::read_inode(0);
+//     cout << "root_inode.i_id: " << root_inode.i_id << endl;
+//     IndexBlock root_ib = IndexBlock::read_index_block(root_inode.i_indirect);
+//     cout << "root_ib.block_id: " << root_ib.block_id << endl;
+//     DirBlock root_db = DirBlock::read_dir_block(root_ib.index[0]);
+//     cout << "root_db.entries[0].inode_id: " << root_db.entries[0].inode_id << endl;
+//     cout << "root_db.entries[0].type: " << root_db.entries[0].type << endl;
+//     cout << "root_db.entries[0].name: " << root_db.entries[0].name << endl;
+//     cout << "root_db.entries[1].inode_id: " << root_db.entries[1].inode_id << endl;
+//     cout << "root_db.entries[1].type: " << root_db.entries[1].type << endl;
+//     cout << "root_db.entries[1].name: " << root_db.entries[1].name << endl;
+// }
+
+// 递归读取目录内容的函数
+void read_directory(uint32_t inode_id, const std::string &path) {
+    Inode inode = Inode::read_inode(inode_id);
+    if (inode.i_type != DIR_TYPE) {
+        std::cerr << "Error: inode " << inode_id << " is not a directory." << std::endl;
+        return;
+    }
+
+    IndexBlock index_block = IndexBlock::read_index_block(inode.i_indirect);
+    for (uint32_t i = 0; i < 254; ++i) {
+        if (index_block.index[i] == UINT32_MAX) {
+            break;
+        }
+
+        DirBlock dir_block = DirBlock::read_dir_block(index_block.index[i]);
+        for (int j = 0; j < 32; ++j) {
+            if (dir_block.entries[j].inode_id == UINT16_MAX) {
+                continue;
+            }
+
+            std::string entry_name = dir_block.entries[j].name;
+            uint32_t entry_inode_id = dir_block.entries[j].inode_id;
+            uint16_t entry_type = dir_block.entries[j].type;
+
+            std::string new_path = path + "/" + entry_name;
+            std::cout << new_path << std::endl;
+
+            if (entry_type == DIR_TYPE && entry_name != "." && entry_name != "..") {
+                read_directory(entry_inode_id, new_path);
+            }
+        }
+    }
 }
+
+int main(){
+    Inode root_inode = Inode::read_inode(0);
+    std::string root_path = "/";
+    read_directory(root_inode.i_id, root_path);
+}  
+
