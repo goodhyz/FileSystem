@@ -35,7 +35,7 @@ void print_block(const std::string &filename, std::streampos block_num) {
 // idx>=600块其为存储信息的数据块
 
 int main() {
-    print_block(disk_path, 600);
+    print_block(disk_path, 0);
     cout << static_cast<uint32_t>(-1) << endl;
     return 0;
 }

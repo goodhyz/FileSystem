@@ -1,54 +1,4 @@
 #include "simdisk.h"
-// 定义超级块结构体, 作为第一个块
-struct SuperBlock {
-    uint32_t fs_size;            // 文件系统大小 （字节）
-    uint32_t block_size;         // 块大小（字节）
-    uint32_t inode_count;        // inode 总数
-    uint32_t block_count;        // 数据块总数
-    uint32_t free_inodes;        // 空闲 inode 数量
-    uint32_t free_blocks;        // 空闲数据块数量
-    uint32_t inode_bitmap_start; // inode 位图的起始位置
-    uint32_t block_bitmap_start; // 数据块位图的起始位置
-    uint32_t inode_list_start;   // inode 列表的起始位置
-    uint32_t data_block_start;   // 数据块区域的起始位置
-
-    // 成员函数：将超级块写入文件
-    void save_super_block(const std::string &filename = disk_path, std::streampos block_num = 0) const {
-        std::ofstream file(filename, std::ios::binary | std::ios::in | std::ios::out);
-        if (!file) {
-            std::cerr << "Error opening file for writing: " << filename << std::endl;
-            return;
-        }
-        file.seekp(block_num * BLOCK_SIZE);
-        file.write(reinterpret_cast<const char *>(this), sizeof(SuperBlock));
-        file.close();
-    }
-
-    // 成员函数：从文件读取超级块
-    static SuperBlock read_super_block(const std::string &filename = disk_path, std::streampos block_num = 0) {
-        SuperBlock sb;
-        std::ifstream ifs(filename, std::ios::binary);
-        if (!ifs) {
-            std::cerr << "Error opening file for reading: " << filename << std::endl;
-            return sb;
-        }
-        ifs.seekg(block_num * BLOCK_SIZE);
-        ifs.read(reinterpret_cast<char *>(&sb), sizeof(SuperBlock));
-        ifs.close();
-        return sb;
-    }
-
-    // 成员函数：返回文件系统信息
-    // 统计总目录数和总文件数
-    void print_super_block() const {
-        std::cout << "文件系统大小: " << fs_size << "Bytes" << std::endl;
-        std::cout << "总块数: " << block_size << "Bytes" << std::endl;
-        std::cout << "可用块数: " << free_blocks << std::endl;
-        std::cout << "总inode数: " << inode_count << std::endl;
-        std::cout << "可用inode数: " << free_inodes << std::endl;
-        std::cout << "more..."<< std::endl;
-    }
-};
 
 // inode位图
 struct InodeBitmap {
@@ -121,6 +71,64 @@ struct BlockBitmap {
 InodeBitmap inode_bitmap;
 BlockBitmap block_bitmap;
 
+// 定义超级块结构体, 作为第一个块
+struct SuperBlock {
+    uint32_t fs_size;            // 文件系统大小 （字节）
+    uint32_t block_size;         // 块大小（字节）
+    uint32_t inode_count;        // inode 总数
+    uint32_t block_count;        // 数据块总数
+    uint32_t free_inodes;        // 空闲 inode 数量
+    uint32_t free_blocks;        // 空闲数据块数量
+    uint32_t inode_bitmap_start; // inode 位图的起始位置
+    uint32_t block_bitmap_start; // 数据块位图的起始位置
+    uint32_t inode_list_start;   // inode 列表的起始位置
+    uint32_t data_block_start;   // 数据块区域的起始位置
+    uint32_t ctime;              // 创建时间
+    uint32_t last_load_time;     // 最近加载时间
+
+    // 成员函数：将超级块写入文件
+    void save_super_block(const std::string &filename = disk_path, std::streampos block_num = 0) {
+        std::ofstream file(filename, std::ios::binary | std::ios::in | std::ios::out);
+        if (!file) {
+            std::cerr << "Error opening file for writing: " << filename << std::endl;
+            return;
+        }
+        block_bitmap.load_bitmap();
+        inode_bitmap.load_bitmap();
+        free_blocks = BLOCK_COUNT - block_bitmap.bitmap.count();
+        free_inodes = INODE_COUNT - inode_bitmap.bitmap.count();
+        file.seekp(block_num * BLOCK_SIZE);
+        file.write(reinterpret_cast<const char *>(this), sizeof(SuperBlock));
+        file.close();
+    }
+
+    // 成员函数：从文件读取超级块
+    static SuperBlock read_super_block(const std::string &filename = disk_path, std::streampos block_num = 0) {
+        SuperBlock sb;
+        std::ifstream ifs(filename, std::ios::binary);
+        if (!ifs) {
+            std::cerr << "Error opening file for reading: " << filename << std::endl;
+            return sb;
+        }
+        ifs.seekg(block_num * BLOCK_SIZE);
+        ifs.read(reinterpret_cast<char *>(&sb), sizeof(SuperBlock)); //??
+        ifs.close();
+        return sb;
+    }
+
+    // 成员函数：返回文件系统信息
+    // 统计总目录数和总文件数
+    void print_super_block() const {
+        std::cout << "文件系统大小: \t" << fs_size << " Bytes" << std::endl;
+        std::cout << "总块数: \t" << block_count << std::endl;
+        std::cout << "可用块数: \t" << free_blocks << std::endl;
+        std::cout << "总inode数: \t" << inode_count << std::endl;
+        std::cout << "可用inode数: \t" << free_inodes << std::endl;
+        std::cout << "创建时间: \t" << format_time(ctime) << std::endl;
+        std::cout << "最近加载时间: \t" << format_time(last_load_time) << std::endl;
+        std::cout << "more..." << std::endl;
+    }
+};
 // 定义 inode 结构体
 // inode 结构体大小为 48 字节，分配564块做inode表，2块做inode位图
 struct Inode {
@@ -222,7 +230,15 @@ struct IndexBlock {
         return ib;
     }
 };
+std::string format_time(uint32_t raw_time) {
+    time_t time = static_cast<time_t>(raw_time);
+    struct tm *local_tm = localtime(&time);
+    char local_buffer[80];
+    strftime(local_buffer, 80, "%Y-%m-%d %H:%M:%S", local_tm);
+    return std::string(local_buffer);
+}
 
+// init 命令：磁盘格式化
 void init_disk() {
     std::ofstream file(disk_path, std::ios::binary | std::ios::out);
     // 初始化 写入 100MB 的0x00数据
@@ -244,8 +260,9 @@ void init_disk() {
         INODE_BITMAP_START,
         BLOCK_BITMAP_START,
         INODE_LIST_START,
-        DATA_BLOCK_START};
-    sb.save_super_block(disk_path, 0);
+        DATA_BLOCK_START,
+        static_cast<uint32_t>(time(0)),
+        static_cast<uint32_t>(time(0))};
     inode_bitmap.init_bitmap();
     block_bitmap.init_bitmap();
     // 创建根目录
@@ -270,40 +287,17 @@ void init_disk() {
     DirBlock root_db;
     root_db.init_DirBlock(root_inode.i_id, root_inode.i_id);
     root_db.save_dir_block(root_ib.index[0]);
-    // 创建 保留索引数据块和目录数据块
-    // 1.根据i_indirect创建索引块
-    // 2.根据索引块创建目录数据块
+    // 最后保存超级块
+    sb.save_super_block(disk_path, 0);
 }
 
-std::string format_time(uint32_t raw_time) {
-    time_t time = static_cast<time_t>(raw_time);
-    struct tm *local_tm = localtime(&time);
-    char local_buffer[80];
-    strftime(local_buffer, 80, "%Y-%m-%d %H:%M:%S", local_tm);
-    return std::string(local_buffer);
-}
-
-// int main() {
-//     // init_disk();
-//     using namespace std;
-//     Inode root_inode = Inode::read_inode(0);
-//     cout << "root_inode.i_id: " << root_inode.i_id << endl;
-//     IndexBlock root_ib = IndexBlock::read_index_block(root_inode.i_indirect);
-//     cout << "root_ib.block_id: " << root_ib.block_id << endl;
-//     DirBlock root_db = DirBlock::read_dir_block(root_ib.index[0]);
-//     cout << "root_db.entries[0].inode_id: " << root_db.entries[0].inode_id << endl;
-//     cout << "root_db.entries[0].type: " << root_db.entries[0].type << endl;
-//     cout << "root_db.entries[0].name: " << root_db.entries[0].name << endl;
-//     cout << "root_db.entries[1].inode_id: " << root_db.entries[1].inode_id << endl;
-//     cout << "root_db.entries[1].type: " << root_db.entries[1].type << endl;
-//     cout << "root_db.entries[1].name: " << root_db.entries[1].name << endl;
-// }
-
-// 递归读取目录内容的函数
+// dir命令：显示当前目录的文件和目录
+// 显示的信息包括文件名、保护码、文件大小、修改时间
+// /s命令参数递归显示；
+// 是否显示物理地址？
 void read_directory(uint32_t inode_id, const std::string &path) {
     Inode inode = Inode::read_inode(inode_id);
     if (inode.i_type != DIR_TYPE) {
-        std::cerr << "Error: inode " << inode_id << " is not a directory." << std::endl;
         return;
     }
 
@@ -314,8 +308,10 @@ void read_directory(uint32_t inode_id, const std::string &path) {
         }
 
         DirBlock dir_block = DirBlock::read_dir_block(index_block.index[i]);
+        // 跳过.和..
+        std::cout << "文件名\t" << "物理地址\t" << "保护码\t" << "文件大小\t" << "修改时间\t" << std::endl;
         for (int j = 0; j < 32; ++j) {
-            if (dir_block.entries[j].inode_id == UINT16_MAX) {
+            if (dir_block.entries[j].type == UNDEFINE_TYPE) {
                 continue;
             }
 
@@ -323,7 +319,7 @@ void read_directory(uint32_t inode_id, const std::string &path) {
             uint32_t entry_inode_id = dir_block.entries[j].inode_id;
             uint16_t entry_type = dir_block.entries[j].type;
 
-            std::string new_path = path + "/" + entry_name;
+            std::string new_path = path + entry_name + '/';
             std::cout << new_path << std::endl;
 
             if (entry_type == DIR_TYPE && entry_name != "." && entry_name != "..") {
@@ -333,9 +329,34 @@ void read_directory(uint32_t inode_id, const std::string &path) {
     }
 }
 
-int main(){
-    Inode root_inode = Inode::read_inode(0);
-    std::string root_path = "/";
-    read_directory(root_inode.i_id, root_path);
-}  
+int main() {
+    using namespace std;
+    Inode root_inode, cur_inode;
+    root_inode = cur_inode = Inode::read_inode(0);
+    SuperBlock sb = SuperBlock::read_super_block();      // 读超级块
+    uint32_t load_time = static_cast<uint32_t>(time(0)); // 保留登录时间
+    while (1) {
+        std::string path = "/";
+        string cmd;
+        cout << path << ">";
+        cin >> cmd;
+        if (cmd == "exit") {
+            break;
+        } else if (cmd == "init") {
+            init_disk();
+            sb = SuperBlock::read_super_block();
+        } else if (cmd == "info") {
+            sb.print_super_block();
+        } else if (cmd == "cd") {
 
+        } else if (cmd == "dir") {
+            read_directory(cur_inode.i_id, path);
+        } else {
+            cout << "未定义的命令，请重新输入" << endl;
+            continue;
+        }
+    }
+    // 退出程序前保存超级块
+    sb.last_load_time = load_time;
+    sb.save_super_block();
+}

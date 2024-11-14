@@ -3,6 +3,7 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -15,7 +16,7 @@ const std::string disk_path = "../Disk/MyDisk.dat";
 #define INODE_COUNT 12032
 #define BLOCK_COUNT 102400
 #define FREE_INODES 12032
-#define FREE_BLOCKS 102400
+#define FREE_BLOCKS 101800
 #define INODE_BITMAP_START 14
 #define BLOCK_BITMAP_START 1
 #define INODE_LIST_START 16
