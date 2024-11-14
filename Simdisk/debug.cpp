@@ -38,4 +38,5 @@ int main() {
     print_block(disk_path, 0);
     cout << static_cast<uint32_t>(-1) << endl;
     return 0;
+
 }

@@ -1,4 +1,4 @@
 *.dat
 \.vscode
 \pre
-.exe
+*.exe

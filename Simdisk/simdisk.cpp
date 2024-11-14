@@ -209,6 +209,7 @@ struct IndexBlock {
     uint32_t block_id;
     uint32_t next_index;
     uint32_t index[254];
+    IndexBlock(){}
     IndexBlock(uint32_t id) {
         memset(index, UINT32_MAX, sizeof(index));
         next_index = UINT32_MAX;
@@ -222,7 +223,7 @@ struct IndexBlock {
         file.close();
     }
     static IndexBlock read_index_block(uint32_t id) {
-        IndexBlock ib(id);
+        IndexBlock ib;
         std::ifstream file(disk_path, std::ios::binary | std::ios::in);
         file.seekg(id * BLOCK_SIZE);
         file.read(reinterpret_cast<char *>(&ib), sizeof(IndexBlock));
@@ -250,7 +251,7 @@ void init_disk() {
     }
     file.close();
     // 初始化超级块，修改位图信息
-    SuperBlock sb = {
+     SuperBlock sb = {
         FS_SIZE,
         BLOCK_SIZE,
         INODE_COUNT,
@@ -295,37 +296,33 @@ void init_disk() {
 // 显示的信息包括文件名、保护码、文件大小、修改时间
 // /s命令参数递归显示；
 // 是否显示物理地址？
-void read_directory(uint32_t inode_id, const std::string &path) {
+void show_directory(uint32_t inode_id, const std::string &path) {
     Inode inode = Inode::read_inode(inode_id);
     if (inode.i_type != DIR_TYPE) {
         return;
     }
-
     IndexBlock index_block = IndexBlock::read_index_block(inode.i_indirect);
-    for (uint32_t i = 0; i < 254; ++i) {
+    for (uint32_t i = 0; i < 254; ++i) { // 访问索引块
         if (index_block.index[i] == UINT32_MAX) {
             break;
         }
-
         DirBlock dir_block = DirBlock::read_dir_block(index_block.index[i]);
         // 跳过.和..
-        std::cout << "文件名\t" << "物理地址\t" << "保护码\t" << "文件大小\t" << "修改时间\t" << std::endl;
+        std::cout <<std::left<<std::setw(10)<< "name" <<std::setw(10)<< "mode" <<std::setw(10)<< "size" <<std::setw(10)<< "last change" << std::endl;
+
         for (int j = 0; j < 32; ++j) {
             if (dir_block.entries[j].type == UNDEFINE_TYPE) {
                 continue;
             }
-
-            std::string entry_name = dir_block.entries[j].name;
-            uint32_t entry_inode_id = dir_block.entries[j].inode_id;
-            uint16_t entry_type = dir_block.entries[j].type;
-
-            std::string new_path = path + entry_name + '/';
-            std::cout << new_path << std::endl;
-
-            if (entry_type == DIR_TYPE && entry_name != "." && entry_name != "..") {
-                read_directory(entry_inode_id, new_path);
-            }
+            Inode temp_inode = Inode::read_inode(dir_block.entries[j].inode_id);
+            std::cout<<std::left<<std::setw(10)<<dir_block.entries[j].name<<std::setw(10)<<temp_inode.i_mode<<std::setw(10)<<temp_inode.i_size<<std::setw(10)<<format_time(temp_inode.i_mtime)<<std::endl;
+            // 递归显示
+            // if (entry_type == DIR_TYPE && entry_name != "." && entry_name != "..") {
+            //     read_directory(entry_inode_id, new_path);
+            // }
         }
+            block_bitmap.load_bitmap();
+    std::cout<<block_bitmap.bitmap.count()<<std::endl;
     }
 }
 
@@ -350,7 +347,7 @@ int main() {
         } else if (cmd == "cd") {
 
         } else if (cmd == "dir") {
-            read_directory(cur_inode.i_id, path);
+            show_directory(cur_inode.i_id, path);
         } else {
             cout << "未定义的命令，请重新输入" << endl;
             continue;
@@ -360,3 +357,8 @@ int main() {
     sb.last_load_time = load_time;
     sb.save_super_block();
 }
+
+// int main(){
+//     block_bitmap.load_bitmap();
+//     std::cout<<block_bitmap.bitmap.count()<<std::endl;
+// }
