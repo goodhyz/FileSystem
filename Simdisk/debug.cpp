@@ -34,9 +34,71 @@ void print_block(const std::string &filename, std::streampos block_num) {
 // idx=580到idx=599置0，便于扩展
 // idx>=600块其为存储信息的数据块
 
-int main() {
-    print_block(disk_path, 0);
-    cout << static_cast<uint32_t>(-1) << endl;
-    return 0;
+std::string read_file(string path) {
+    
+    // 打开文件
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("无法打开文件: " + path);
+    }
 
+    // 读取文件内容
+    std::ostringstream oss;
+    oss << file.rdbuf();
+    
+    // 关闭文件
+    file.close();
+    
+    // 返回文件内容作为字符串
+    return oss.str();
+}
+
+// int main() {
+//         print_block(disk_path, 600);
+//         cout << static_cast<uint32_t>(-1) << endl;
+//         return 0;
+// }
+#include <iostream>
+#include <sstream>
+#include <vector>
+#include <map>
+#include <string>
+
+int main() {
+    std::string path = "/";
+    while (1) {
+        string input, cmd, tmp_arg;
+        cout << path << ">";
+        vector<string> args;
+        std::getline(cin, input);
+        std::istringstream iss(input);
+        iss >> cmd;
+        while (iss >> tmp_arg) {
+            args.push_back(tmp_arg);
+        }
+
+        // 解析选项
+        std::map<std::string, std::string> options;
+        for (size_t i = 0; i < args.size(); ++i) {
+            if (args[i].front() == '-') {
+                if (i + 1 < args.size() && args[i + 1].front() != '-') {
+                    options[args[i]] = args[i + 1];
+                    ++i;
+                } else {
+                    options[args[i]] = "";
+                }
+            }
+        }
+
+        if (cmd == "cd") {
+            // 处理cd命令
+        } else if (cmd == "rd") {
+            // 处理rd命令
+            if (options.find("-rf") != options.end()) {
+                // 处理 -rf 选项
+                cout << "选项 -rf 被检测到" << endl;
+            }
+        }
+    }
+    return 0;
 }

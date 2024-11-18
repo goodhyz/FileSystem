@@ -3,6 +3,7 @@
 // inode位图
 struct InodeBitmap {
     std::bitset<INODE_COUNT> bitmap;
+    InodeBitmap() { load_bitmap(); }
     void init_bitmap() {
         bitmap.reset();
         save_bitmap();
@@ -30,10 +31,15 @@ struct InodeBitmap {
         }
         return static_cast<uint32_t>(-1);
     }
+    void free_inode(uint32_t inode_id) {
+        bitmap.reset(inode_id);
+        save_bitmap();
+    }
 };
 // 数据块位图
 struct BlockBitmap {
     std::bitset<BLOCK_COUNT> bitmap;
+    BlockBitmap() { load_bitmap(); }
     void init_bitmap() {
         bitmap.reset();
         // 前600块已经被占用
@@ -64,6 +70,10 @@ struct BlockBitmap {
             }
         }
         return static_cast<uint32_t>(-1);
+    }
+    void free_block(uint32_t block_id) {
+        bitmap.reset(block_id);
+        save_bitmap();
     }
 };
 
@@ -209,7 +219,7 @@ struct IndexBlock {
     uint32_t block_id;
     uint32_t next_index;
     uint32_t index[254];
-    IndexBlock(){}
+    IndexBlock() {}
     IndexBlock(uint32_t id) {
         memset(index, UINT32_MAX, sizeof(index));
         next_index = UINT32_MAX;
@@ -231,6 +241,7 @@ struct IndexBlock {
         return ib;
     }
 };
+
 std::string format_time(uint32_t raw_time) {
     time_t time = static_cast<time_t>(raw_time);
     struct tm *local_tm = localtime(&time);
@@ -251,7 +262,7 @@ void init_disk() {
     }
     file.close();
     // 初始化超级块，修改位图信息
-     SuperBlock sb = {
+    SuperBlock sb = {
         FS_SIZE,
         BLOCK_SIZE,
         INODE_COUNT,
@@ -270,7 +281,7 @@ void init_disk() {
     std::ofstream file1(disk_path, std::ios::binary | std::ios::out | std::ios::in);
     Inode root_inode = {
         inode_bitmap.get_free_inode(),  // inode 编号, 表示为位置
-        2 * sizeof(DirEntry),           // 文件大小, 初始化为两个目录项（.和..）
+        sizeof(DirBlock),               // 文件大小, 初始化为两个目录项（.和..）
         2,                              // 文件所占数据块数量, 一个索引块和一个目录块
         1,                              // 链接数
         block_bitmap.get_free_block(),  // 一级间接块指针 600-102399
@@ -292,11 +303,7 @@ void init_disk() {
     sb.save_super_block(disk_path, 0);
 }
 
-// dir命令：显示当前目录的文件和目录
-// 显示的信息包括文件名、保护码、文件大小、修改时间
-// /s命令参数递归显示；
-// 是否显示物理地址？
-void show_directory(uint32_t inode_id, const std::string &path) {
+void show_directory(uint32_t inode_id) {
     Inode inode = Inode::read_inode(inode_id);
     if (inode.i_type != DIR_TYPE) {
         return;
@@ -307,49 +314,889 @@ void show_directory(uint32_t inode_id, const std::string &path) {
             break;
         }
         DirBlock dir_block = DirBlock::read_dir_block(index_block.index[i]);
-        // 跳过.和..
-        std::cout <<std::left<<std::setw(10)<< "name" <<std::setw(10)<< "mode" <<std::setw(10)<< "size" <<std::setw(10)<< "last change" << std::endl;
+        std::cout << std::left << std::setw(10) << "name" << std::setw(10) << "mode" << std::setw(10) << "size" << std::setw(10) << "last change" << std::endl;
 
         for (int j = 0; j < 32; ++j) {
             if (dir_block.entries[j].type == UNDEFINE_TYPE) {
                 continue;
             }
             Inode temp_inode = Inode::read_inode(dir_block.entries[j].inode_id);
-            std::cout<<std::left<<std::setw(10)<<dir_block.entries[j].name<<std::setw(10)<<temp_inode.i_mode<<std::setw(10)<<temp_inode.i_size<<std::setw(10)<<format_time(temp_inode.i_mtime)<<std::endl;
-            // 递归显示
-            // if (entry_type == DIR_TYPE && entry_name != "." && entry_name != "..") {
-            //     read_directory(entry_inode_id, new_path);
-            // }
+            std::string print_name = std::string(dir_block.entries[j].name);
+            if (dir_block.entries[j].type == DIR_TYPE) {
+                print_name += "/";
+            }
+            std::cout << std::left << std::setw(10) << print_name << std::setw(10) << temp_inode.i_mode << std::setw(10) << temp_inode.i_size << std::setw(10) << format_time(temp_inode.i_mtime) << std::endl;
         }
-            block_bitmap.load_bitmap();
-    std::cout<<block_bitmap.bitmap.count()<<std::endl;
     }
 }
 
+bool is_path_dir(const std::string &path, uint32_t &purpose_id) {
+    // path 需要以 / 结尾，且不能包含 //
+    if (path.find("//") != std::string::npos || path.back() != '/') {
+        std::cerr << ERROR << "输入路径格式错误，请重新输入" << NORMAL << std::endl;
+        return false;
+    }
+
+    std::vector<std::string> path_list;
+    std::string temp;
+    bool is_absolute = false; // 是否为绝对路径
+
+    // 将路径按 '/' 分割成多个部分，存储在 path_list 中
+    for (auto c : path) {
+        if (c == '/' && !temp.empty()) {
+            path_list.push_back(temp);
+            temp.clear();
+        } else if (c == '/' && temp.empty()) {
+            is_absolute = true;
+        } else {
+            temp += c;
+        }
+    }
+
+    uint32_t temp_inodeid;
+    Inode temp_inode;
+
+    if (is_absolute) {             // 绝对路径
+        temp_inodeid = 0;          // 根目录 inode_id 为 0
+    } else {                       // 相对路径
+        temp_inodeid = purpose_id; // 从当前目录开始
+    }
+    for (const auto &p : path_list) {
+        temp_inode = Inode::read_inode(temp_inodeid); // 开始目录的 inode
+        IndexBlock temp_ib = IndexBlock::read_index_block(temp_inode.i_indirect);
+
+        bool found = false;
+        while (true) {
+            for (uint32_t i = 0; i < 254; ++i) { // 访问索引块
+                if (temp_ib.index[i] == UINT32_MAX) {
+                    break;
+                }
+
+                // 读取目录块，遍历目录项，找到 p
+                DirBlock dir_block = DirBlock::read_dir_block(temp_ib.index[i]);
+                for (int j = 0; j < 32; ++j) {
+                    if (dir_block.entries[j].type == UNDEFINE_TYPE) {
+                        continue;
+                    }
+                    if (dir_block.entries[j].name == p && dir_block.entries[j].type == DIR_TYPE) {
+                        temp_inodeid = dir_block.entries[j].inode_id;
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    break;
+                }
+            }
+            if (found || temp_ib.next_index == UINT32_MAX) {
+                break;
+            }
+            // 读取下一个 IndexBlock
+            temp_ib = IndexBlock::read_index_block(temp_ib.next_index);
+        }
+
+        if (!found) {
+            std::cerr << ERROR << "目录不存在，请检查" << p << "是否正确" << NORMAL << std::endl;
+            return false;
+        }
+    }
+
+    purpose_id = temp_inodeid;
+    return true;
+}
+
+bool is_dir_exit(const std::string &path, uint32_t &purpose_id) {
+    std::vector<std::string> path_list;
+    std::string temp;
+    bool is_absolute = false; // 是否为绝对路径
+
+    // 将路径按 '/' 分割成多个部分，存储在 path_list 中
+    for (auto c : path) {
+        if (c == '/' && !temp.empty()) {
+            path_list.push_back(temp);
+            temp.clear();
+        } else if (c == '/' && temp.empty()) {
+            is_absolute = true;
+        } else {
+            temp += c;
+        }
+    }
+
+    uint32_t temp_inodeid;
+    Inode temp_inode;
+
+    if (is_absolute) {             // 绝对路径
+        temp_inodeid = 0;          // 根目录 inode_id 为 0
+    } else {                       // 相对路径
+        temp_inodeid = purpose_id; // 从当前目录开始
+    }
+    for (const auto &p : path_list) {
+        temp_inode = Inode::read_inode(temp_inodeid); // 开始目录的 inode
+        IndexBlock temp_ib = IndexBlock::read_index_block(temp_inode.i_indirect);
+
+        bool found = false;
+        while (true) {
+            for (uint32_t i = 0; i < 254; ++i) {
+                if (temp_ib.index[i] == UINT32_MAX) {
+                    break;
+                }
+                DirBlock dir_block = DirBlock::read_dir_block(temp_ib.index[i]);
+                for (int j = 0; j < 32; ++j) {
+                    if (dir_block.entries[j].type == UNDEFINE_TYPE) {
+                        continue;
+                    }
+                    if (dir_block.entries[j].name == p) {
+                        temp_inodeid = dir_block.entries[j].inode_id;
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    break;
+                }
+            }
+            if (found || temp_ib.next_index == UINT32_MAX) {
+                break;
+            }
+            temp_ib = IndexBlock::read_index_block(temp_ib.next_index);
+        }
+        if (!found) {
+            return false;
+        }
+    }
+    purpose_id = temp_inodeid;
+    return true;
+}
+
+bool is_file_exit(const std::string &name, Inode &cur_inode) {
+    IndexBlock cur_ib = IndexBlock::read_index_block(cur_inode.i_indirect);
+
+    bool found = false;
+    while (true) {
+        for (uint32_t i = 0; i < 254; ++i) {
+            if (cur_ib.index[i] == UINT32_MAX) {
+                break;
+            }
+            DirBlock dir_block = DirBlock::read_dir_block(cur_ib.index[i]);
+            for (int j = 0; j < 32; ++j) {
+                if (dir_block.entries[j].type == UNDEFINE_TYPE) {
+                    continue;
+                }
+                if (dir_block.entries[j].name == name) {
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                break;
+            }
+        }
+        if (found || cur_ib.next_index == UINT32_MAX) {
+            break;
+        }
+        cur_ib = IndexBlock::read_index_block(cur_ib.next_index);
+    }
+    if (!found) {
+        return false;
+    }
+    return true;
+}
+
+std::string get_absolute_path(uint32_t inode_id) {
+    // 从 inode_id 开始，查找父目录，直到根目录
+    // 可能有问题，待调式
+    if (inode_id == 0) {
+        return "/";
+    }
+    std::string path = "/";
+    Inode inode = Inode::read_inode(inode_id);
+    while (inode.i_id != 0) {
+        IndexBlock index_block = IndexBlock::read_index_block(inode.i_indirect);
+        DirBlock dir_block = DirBlock::read_dir_block(index_block.index[0]);
+        Inode parent_inode;
+        bool found = false;
+        for (int i = 0; i < 32; i++) {
+            // 注意写条件 char[28] 和 ""
+            if (std::string(dir_block.entries[i].name) == "..") {
+                parent_inode = Inode::read_inode(dir_block.entries[i].inode_id);
+                IndexBlock parent_ib = IndexBlock::read_index_block(parent_inode.i_indirect);
+                DirBlock parent_db = DirBlock::read_dir_block(parent_ib.index[0]);
+                for (int j = 0; j < 32; j++) {
+                    if (parent_db.entries[j].inode_id == inode.i_id) {
+                        path = "/" + std::string(parent_db.entries[j].name) + path;
+                        found = true;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        if (found) {
+            inode = parent_inode;
+        } else { // 未找到父目录，这是一个文件
+            return "";
+        }
+    }
+    return path;
+}
+
+bool is_valid_dir_name(const std::string &dir_name) {
+    // 目录不能包含 / ，长度不能超过28
+    if (dir_name.find("/") != std::string::npos || dir_name.size() > 28) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
+uint32_t make_dir_help(const std::string &dir_name, Inode &cur_inode) {
+    IndexBlock cur_ib = IndexBlock::read_index_block(cur_inode.i_indirect);
+    bool write_flag = false;
+    Inode new_inode = {
+        inode_bitmap.get_free_inode(),
+        sizeof(DirBlock),
+        2,
+        1,
+        block_bitmap.get_free_block(),
+        DIR_TYPE,
+        755,
+        0,
+        0,
+        static_cast<uint32_t>(time(0)),
+        static_cast<uint32_t>(time(0)),
+        static_cast<uint32_t>(time(0))};
+    new_inode.save_inode();
+    IndexBlock new_ib(new_inode.i_indirect);
+    new_ib.save_index_block();
+    DirBlock new_db;
+    // 初始化目录项, 当前目录和父目录
+    new_db.init_DirBlock(cur_inode.i_id, new_inode.i_id);
+    new_db.save_dir_block(new_ib.index[0]);
+    // 访问索引块的所有目录数据块，写入新目录dirname停止
+    for (uint32_t i = 0; i < 254; i++) {
+        if (cur_ib.index[i] == UINT32_MAX) {
+            break;
+        }
+        DirBlock cur_db = DirBlock::read_dir_block(cur_ib.index[i]);
+        for (int j = 0; j < 32; j++) {
+            if (cur_db.entries[j].type == UNDEFINE_TYPE) {
+                cur_db.entries[j].set(new_inode.i_id, DIR_TYPE, dir_name.c_str());
+                write_flag = true;
+                break;
+            }
+        }
+        if (write_flag) {
+            cur_db.save_dir_block(cur_ib.index[i]);
+            break;
+        }
+    }
+    // 更修父目录的修改时间
+    cur_inode.i_mtime = static_cast<uint32_t>(time(0));
+    cur_inode.save_inode();
+    return new_inode.i_id;
+}
+
+uint32_t get_file_inode_id(const std::string &file_name, Inode &dir_inode) {
+    IndexBlock cur_ib = IndexBlock::read_index_block(dir_inode.i_indirect);
+    bool found = false;
+    while (true) {
+        for (uint32_t i = 0; i < 254; i++) {
+            if (cur_ib.index[i] == UINT32_MAX) {
+                break;
+            }
+            DirBlock cur_db = DirBlock::read_dir_block(cur_ib.index[i]);
+            for (int j = 0; j < 32; j++) {
+                if (cur_db.entries[j].type == UNDEFINE_TYPE) {
+                    continue;
+                }
+                if (cur_db.entries[j].name == file_name && cur_db.entries[j].type == FILE_TYPE) {
+                    found = true;
+                    return cur_db.entries[j].inode_id;
+                }
+            }
+            if (found) {
+                break;
+            }
+        }
+        if (found || cur_ib.next_index == UINT32_MAX) {
+            break;
+        }
+        cur_ib = IndexBlock::read_index_block(cur_ib.next_index);
+    }
+    return UINT32_MAX;
+}
+
+std::string read_file(std::string file_path, std::string file_name) {
+    uint32_t start_id = 0;
+    if (!is_dir_exit(file_path, start_id)) {
+        std::cout << ERROR << "目标目录" << file_path << "不存在" << NORMAL << std::endl;
+        return "";
+    }
+    Inode dir_inode = Inode::read_inode(start_id);
+    if (is_file_exit(file_name, dir_inode)) {
+        // 获取并读取文件inode
+        Inode file_inode = Inode::read_inode(get_file_inode_id(file_name, dir_inode));
+        int file_size = file_inode.i_size;
+        // 读取文件内容并转化为字符串
+        std::string file_content;
+        IndexBlock file_ib = IndexBlock::read_index_block(file_inode.i_indirect);
+        int bytes_read = 0;
+        for (uint32_t i = 0; i < 254 && bytes_read < file_size; i++) {
+            if (file_ib.index[i] == UINT32_MAX) {
+                break;
+            }
+            char buffer[BLOCK_SIZE];
+            std::ifstream file(disk_path, std::ios::binary | std::ios::in);
+            file.seekg(file_ib.index[i] * BLOCK_SIZE);
+            int bytes_to_read = std::min(BLOCK_SIZE, file_size - bytes_read);
+            file.read(buffer, bytes_to_read);
+            file_content.append(buffer, bytes_to_read);
+            bytes_read += bytes_to_read;
+            file.close();
+        }
+        
+        if (file_content.empty()) {
+            return "it is empty";
+        }
+        return file_content;
+    } else {
+        std::cout << ERROR << "目标文件" << file_name << "不存在" << NORMAL << std::endl;
+        return "";
+    }
+}
+
+bool write_file(std::string file_path, std::string file_name, std::string content) {
+    uint32_t start_id = 0;
+    if (!is_dir_exit(file_path, start_id)) {
+        std::cout << ERROR << "目标目录" << file_path << "不存在" << NORMAL << std::endl;
+        return false;
+    }
+    Inode dir_inode = Inode::read_inode(start_id);
+    //向一个已经存在的文件后增加内容
+    if (is_file_exit(file_name, dir_inode)) {
+        Inode file_inode = Inode::read_inode(get_file_inode_id(file_name, dir_inode));
+        IndexBlock file_ib = IndexBlock::read_index_block(file_inode.i_indirect);
+        uint32_t block_id = UINT16_MAX;
+        uint32_t file_size = file_inode.i_size;
+        int need_num = (content.size() + file_size) / BLOCK_SIZE + 1;
+        // 找到对应的块并写入
+        for (int i = 0 ;i<need_num;i++){
+            if (i<254){
+                if (file_ib.index[i] == UINT32_MAX){
+                    file_ib.index[i] = block_bitmap.get_free_block();
+                }
+                block_id = file_ib.index[i];
+            }else{
+                if (file_ib.next_index == UINT32_MAX){
+                    file_ib.next_index = block_bitmap.get_free_block();
+                }
+                file_ib = IndexBlock::read_index_block(file_ib.next_index);
+                block_id = file_ib.index[i-254];
+            }
+            std::ofstream file(disk_path, std::ios::binary | std::ios::out | std::ios::in);
+            file.seekp(block_id * BLOCK_SIZE + (i == 0 ? file_size % BLOCK_SIZE : 0));
+            file.write(content.c_str() + i * BLOCK_SIZE, std::min(BLOCK_SIZE, static_cast<int>(content.size() - i * BLOCK_SIZE)));
+            file.close();
+        }
+        file_inode.i_size += content.size();
+        file_inode.i_mtime = dir_inode.i_mtime = static_cast<uint32_t>(time(0));
+        file_inode.save_inode();
+        dir_inode.save_inode();
+         file_ib.save_index_block();
+         return true;
+    } else {
+        std::cout << ERROR << "目标文件" << file_name << "不存在" << NORMAL << std::endl;
+        return false;
+    }
+
+   
+}
+// 输入一定是需要创建的目录
+bool make_dir(const std::string dir_name, Inode cur_inode) {
+    std::vector<std::string> path_list;
+    std::string temp;
+    for (auto c : dir_name) {
+        if (c == '/' && !temp.empty()) {
+            path_list.push_back(temp);
+            if (!is_valid_dir_name(temp)) {
+                std::cout << ERROR << "目录名" << temp << "不合法" << NORMAL << std::endl;
+                return false;
+            }
+            temp.clear();
+        } else if (c != '/') {
+            temp += c;
+        }
+    }
+    std::string base_path = get_absolute_path(cur_inode.i_id);
+    for (auto p : path_list) {
+        base_path += p + "/";
+        uint32_t cur_id = cur_inode.i_id;
+        if (is_dir_exit(base_path, cur_id)) {
+            cur_inode = Inode::read_inode(cur_id);
+            continue;
+        } else {
+            cur_id = make_dir_help(p, cur_inode);
+            cur_inode = Inode::read_inode(cur_id);
+        }
+    }
+    return true;
+}
+
+bool make_file(const std::string file_name, uint32_t inode_id) {
+    Inode parent_inode = Inode::read_inode(inode_id);
+    if (!is_file_exit(file_name, parent_inode)) {
+        IndexBlock cur_ib = IndexBlock::read_index_block(parent_inode.i_indirect);
+        Inode new_inode = {
+            inode_bitmap.get_free_inode(),
+            0,
+            0,
+            1,
+            block_bitmap.get_free_block(),
+            FILE_TYPE,
+            755,
+            0,
+            0,
+            static_cast<uint32_t>(time(0)),
+            static_cast<uint32_t>(time(0)),
+            static_cast<uint32_t>(time(0))};
+        IndexBlock new_ib(new_inode.i_indirect);
+        IndexBlock parent_ib = IndexBlock::read_index_block(parent_inode.i_indirect);
+        bool write_flag = false;
+        while (true) {
+            for (uint32_t i = 0; i < 254; i++) {
+                if (parent_ib.index[i] == UINT32_MAX) {
+                    break;
+                }
+                DirBlock parent_db = DirBlock::read_dir_block(parent_ib.index[i]);
+                for (int j = 0; j < 32; j++) {
+                    if (parent_db.entries[j].type == UNDEFINE_TYPE) {
+                        parent_db.entries[j].set(new_inode.i_id, FILE_TYPE, file_name.c_str());
+                        write_flag = true;
+                        break;
+                    }
+                }
+                if (write_flag) {
+                    parent_db.save_dir_block(parent_ib.index[i]);
+                    break;
+                }
+            }
+            if (write_flag) {
+                break;
+            }
+            // 当前索引块已满，开辟新的索引块
+            if (parent_ib.next_index == UINT32_MAX) {
+                parent_ib.next_index = block_bitmap.get_free_block();
+                parent_ib.save_index_block();
+            }
+            parent_ib = IndexBlock::read_index_block(parent_ib.next_index);
+        };
+        parent_inode.i_mtime = static_cast<uint32_t>(time(0));
+        // save all
+        new_inode.save_inode();
+        parent_inode.save_inode();
+        new_ib.save_index_block();
+        return true;
+    } else {
+        std::cout << ERROR << "文件" << file_name << "已存在" << NORMAL << std::endl;
+        return false;
+    }
+}
+
+bool del_file(const std::string file_name, Inode &cur_inode) {
+    IndexBlock cur_ib = IndexBlock::read_index_block(cur_inode.i_indirect);
+    bool found = false;
+    uint32_t file_inode_id;
+    // 删除目录项
+    while (true) {
+        for (uint32_t i = 0; i < 254; i++) {
+            if (cur_ib.index[i] == UINT32_MAX) {
+                break;
+            }
+            DirBlock cur_db = DirBlock::read_dir_block(cur_ib.index[i]);
+            for (int j = 0; j < 32; j++) {
+                if (cur_db.entries[j].type == UNDEFINE_TYPE) {
+                    continue;
+                }
+                if (std::string(cur_db.entries[j].name) == file_name && cur_db.entries[j].type == FILE_TYPE) {
+                    found = true;
+                    file_inode_id = cur_db.entries[j].inode_id;
+                    cur_db.entries[j].type = UNDEFINE_TYPE;
+                    cur_db.entries[j].inode_id = UINT16_MAX;
+                    cur_db.save_dir_block(cur_ib.index[i]);
+                    break;
+                }
+            }
+            if (found) {
+                break;
+            }
+        }
+        if (found || cur_ib.next_index == UINT32_MAX) {
+            break;
+        }
+        cur_ib = IndexBlock::read_index_block(cur_ib.next_index);
+    }
+    if (!found) {
+        std::cout << ERROR << "文件" << file_name << "不存在" << NORMAL << std::endl;
+        return false;
+    }
+    Inode file_inode = Inode::read_inode(file_inode_id);
+    uint32_t file_ib_id = file_inode.i_indirect;
+    IndexBlock file_ib = IndexBlock::read_index_block(file_ib_id);
+    for (uint32_t i = 0; i < 254; i++) {
+        if (file_ib.index[i] == UINT32_MAX) {
+            break;
+        }
+        block_bitmap.free_block(file_ib.index[i]);
+    }
+    block_bitmap.free_block(file_ib_id);
+    inode_bitmap.free_inode(file_inode_id);
+    return true;
+}
+
+bool is_dir_empty(const uint32_t dir_inode_id) {
+    Inode dir_inode = Inode::read_inode(dir_inode_id);
+    IndexBlock cur_ib = IndexBlock::read_index_block(dir_inode.i_indirect);
+    for (uint32_t i = 0; i < 254; i++) {
+        if (cur_ib.index[i] == UINT32_MAX) {
+            break;
+        }
+        DirBlock cur_db = DirBlock::read_dir_block(cur_ib.index[i]);
+        for (int j = 2; j < 32; j++) {
+            if (cur_db.entries[j].type == UNDEFINE_TYPE) {
+                continue;
+            }
+            if (cur_db.entries[j].type != UNDEFINE_TYPE) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool del_dir(const uint32_t dir_inode_id) {
+    uint32_t parent_inode_id = 0;
+    Inode dir_inode = Inode::read_inode(dir_inode_id);
+    IndexBlock cur_ib = IndexBlock::read_index_block(dir_inode.i_indirect);
+    while (true) {
+        for (uint32_t i = 0; i < 254; i++) {
+            if (cur_ib.index[i] == UINT32_MAX) {
+                break;
+            }
+            DirBlock cur_db = DirBlock::read_dir_block(cur_ib.index[i]);
+            for (int j = 0; j < 32; j++) {
+                // 跳过当前目录和父目录，递归后删除
+                if (cur_db.entries[j].type == UNDEFINE_TYPE || std::string(cur_db.entries[j].name) == "." || std::string(cur_db.entries[j].name) == "..") {
+                    if (std::string(cur_db.entries[j].name) == "..") {
+                        parent_inode_id = cur_db.entries[j].inode_id;
+                    }
+                    continue;
+                }
+                if (cur_db.entries[j].type == DIR_TYPE) {
+                    if (!del_dir(cur_db.entries[j].inode_id)) {
+                        return false;
+                    }
+                } else if (cur_db.entries[j].type == FILE_TYPE) {
+                    if (!del_file(cur_db.entries[j].name, dir_inode)) {
+                        return false;
+                    }
+                }
+            }
+            block_bitmap.free_block(cur_ib.index[i]);
+        }
+        if (cur_ib.next_index == UINT32_MAX) {
+            // 释放最后一个索引块
+            block_bitmap.free_block(cur_ib.block_id);
+            break;
+        }
+        // 释放当前索引块，更新下一个索引块
+        block_bitmap.free_block(cur_ib.block_id);
+        cur_ib = IndexBlock::read_index_block(cur_ib.next_index);
+    }
+    inode_bitmap.free_inode(dir_inode_id);
+    Inode parent_inode = Inode::read_inode(parent_inode_id);
+    IndexBlock parent_ib = IndexBlock::read_index_block(parent_inode.i_indirect);
+    bool found = false;
+    while (true) {
+        for (uint32_t i = 0; i < 254; i++) {
+            if (parent_ib.index[i] == UINT32_MAX) {
+                break;
+            }
+            DirBlock parent_db = DirBlock::read_dir_block(parent_ib.index[i]);
+            for (int j = 0; j < 32; j++) {
+                if (parent_db.entries[j].type == UNDEFINE_TYPE) {
+                    continue;
+                }
+                if (parent_db.entries[j].inode_id == dir_inode_id) {
+                    parent_db.entries[j].type = UNDEFINE_TYPE;
+                    parent_db.entries[j].inode_id = UINT16_MAX;
+                    parent_db.entries[j].name[0] = '\0';
+                    parent_db.save_dir_block(parent_ib.index[i]);
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                break;
+            }
+        }
+        if (found || parent_ib.next_index == UINT32_MAX) {
+            break;
+        }
+        parent_ib = IndexBlock::read_index_block(parent_ib.next_index);
+    }
+    return true;
+}
 int main() {
     using namespace std;
     Inode root_inode, cur_inode;
     root_inode = cur_inode = Inode::read_inode(0);
     SuperBlock sb = SuperBlock::read_super_block();      // 读超级块
     uint32_t load_time = static_cast<uint32_t>(time(0)); // 保留登录时间
+    std::string user = "root";
+    std::string path = "/";
+
     while (1) {
-        std::string path = "/";
-        string cmd;
-        cout << path << ">";
-        cin >> cmd;
+        string input, cmd, tmp_arg;
+        cout << USER << user + "@FileSystem" << NORMAL << ":" << PATH << path << NORMAL << "$ ";
+        vector<string> args;
+        std::getline(cin, input);
+        std::istringstream iss(input);
+        iss >> cmd;
+        while (iss >> tmp_arg) {
+            args.push_back(tmp_arg);
+        }
+        // 解析参数
+        std::map<std::string, std::string> options;
+        std::string arg;
+        for (size_t i = 0; i < args.size(); ++i) {
+            if (args[i].front() == '-') {
+                // 检查是否有参数
+                if (i + 1 < args.size() && args[i + 1].front() != '-') {
+                    options[args[i]] = args[i + 1];
+                    ++i; // 跳过参数
+                } else {
+                    options[args[i]] = "true";
+                }
+            } else {
+                // 将最后一个非选项参数赋值给 arg
+                arg = args[i];
+            }
+        }
+        if (arg.empty() && !args.empty()) {
+            arg = args.back();
+        }
         if (cmd == "exit") {
             break;
         } else if (cmd == "init") {
             init_disk();
             sb = SuperBlock::read_super_block();
         } else if (cmd == "info") {
+            sb.save_super_block();
             sb.print_super_block();
         } else if (cmd == "cd") {
+            uint32_t purpose_id = cur_inode.i_id;
+            if (arg.empty()) { // no args ,into root
+                cur_inode = root_inode;
+                path = "/";
+                continue;
+            }
+            if (arg.back() != '/') {
+                arg += "/";
+            }
+            if (is_path_dir(arg, purpose_id)) { // 是一个目录
+                cur_inode = Inode::read_inode(purpose_id);
+                path = get_absolute_path(purpose_id);
+            }
+        } else if (cmd == "md") {
+            // no args ,raise error
+            if (arg.empty()) {
+                cout << ERROR << "请输入目录名" << NORMAL << endl;
+                continue;
+            }
+            if (arg.back() != '/') {
+                arg += "/";
+            }
+            if (arg.find("//") != std::string::npos) {
+                std::cout << ERROR << "输入路径格式错误，请重新输入" << NORMAL << std::endl;
+                continue;
+            }
+            uint32_t start_id;
+            // 绝对路径
+            if (arg.front() == '/') {
+                start_id = 0;
+                if (is_dir_exit(arg, start_id)) {
+                    std::cout << ERROR << "目录" << arg << "已存在" << NORMAL << std::endl;
+                } else {
+                    if (make_dir(arg, root_inode)) {
+                        std::cout << SUCCESS << "目录" << arg << "创建成功" << NORMAL << std::endl;
+                    }
+                }
+            }
+            // 相对路径
+            else {
+                start_id = cur_inode.i_id;
+                if (is_dir_exit(arg, start_id)) {
+                    std::cout << ERROR << "目录" << arg << "已存在" << NORMAL << std::endl;
+                } else {
+                    if (make_dir(arg, cur_inode)) {
+                        std::cout << SUCCESS << "目录" << arg << "创建成功" << NORMAL << std::endl;
+                    }
+                }
+            }
+        } else if (cmd == "rd") {
+            // no args ,raise error
+            if (arg.empty()) {
+                cout << ERROR << "请输入目录名" << NORMAL << endl;
+                continue;
+            }
+            if (arg.find("//") != std::string::npos) {
+                std::cout << ERROR << "输入路径格式错误，请重新输入" << NORMAL << std::endl;
+                continue;
+            }
+            if (arg.back() != '/') {
+                arg += "/";
+            }
+            // 全部转换为绝对路径
+            string dir_path = arg;
+            uint32_t purpose_id = 0;
+            if (dir_path.front() != '/') {
+                dir_path = get_absolute_path(cur_inode.i_id) + dir_path;
+            }
+            if (is_dir_exit(dir_path, purpose_id)) {
+                if (is_dir_empty(purpose_id) || options["-rf"] == "true") {
+                    if (del_dir(purpose_id)) {
+                        std::cout << SUCCESS << "目录" << dir_path << "删除成功" << NORMAL << std::endl;
+                        if (cur_inode.i_id == purpose_id) {
+                            cur_inode = root_inode;
+                            path = "/";
+                        }
+                    } else {
+                        std::cout << ERROR << "目录" << dir_path << "不为空" << NORMAL << std::endl;
+                    }
+                } else {
+                    std::cout << ERROR << "目录" << dir_path << "不存在" << NORMAL << std::endl;
+                }
+            }
+        } else if (cmd == "newfile") {
+            // no args ,raise error
+            if (arg.empty()) {
+                cout << ERROR << "请输入文件名" << NORMAL << endl;
+                continue;
+            }
+            // args , analyse path
+            if (arg.find("//") != std::string::npos || arg.back() == '/') {
+                std::cout << ERROR << "文件名输入错误，请重新输入" << NORMAL << std::endl;
+                continue;
+            }
+            uint32_t start_id = 0;
+            // 将args分为文件名和路径
+            size_t pos = arg.find_last_of('/');
+            string file_path, file_name;
+            if (pos != std::string::npos) {
+                file_path = arg.substr(0, pos + 1);
+                file_name = arg.substr(pos + 1);
+            } else {
+                file_path = "";
+                file_name = arg;
+            }
+            if (arg.front() != '/') {
 
-        } else if (cmd == "dir") {
-            show_directory(cur_inode.i_id, path);
+                file_path = get_absolute_path(cur_inode.i_id) + file_path;
+            }
+            if (is_dir_exit(file_path, start_id)) { // 目录存在
+                make_file(file_name, start_id);
+            } else { // 目录不存在
+                if (make_dir(file_path, root_inode)) {
+                    is_dir_exit(file_path, start_id); // 找到目录
+                    make_file(file_name, start_id);
+                }
+            }
+        } else if (cmd == "cat") {
+            // no args ,raise error
+            if (arg.empty()) {
+                cout << ERROR << "请输入文件名" << NORMAL << endl;
+                continue;
+            }
+            // 将args分为文件名和路径
+            size_t pos = arg.find_last_of('/');
+            string file_path, file_name;
+            if (pos != std::string::npos) {
+                file_path = arg.substr(0, pos + 1);
+                file_name = arg.substr(pos + 1);
+            } else {
+                file_path = "";
+                file_name = arg;
+            }
+            if (arg.front() != '/') {
+                file_path = get_absolute_path(cur_inode.i_id) + file_path;
+            }
+            // 读文件
+            if (options["-i"].empty()) {
+                std::string output = read_file(file_path, file_name);
+                if (!output.empty()) {
+                    std::cout << output << std::endl;
+                }
+            } else { // -i
+                write_file(file_path, file_name, options["-i"]);
+            }
+
+        } else if (cmd == "copy") {
+            // no args ,raise error
+            if (arg.empty()) {
+                cout << ERROR << "请输入文件名" << NORMAL << endl;
+                continue;
+            }
+            // args , analyse path
+        } else if (cmd == "del") {
+            // no args ,raise error
+            if (arg.empty()) {
+                cout << ERROR << "请输入文件名" << NORMAL << endl;
+                continue;
+            }
+            // args , analyse path
+            if (arg.find("//") != std::string::npos || arg.back() == '/') {
+                std::cout << ERROR << "文件名输入错误，请重新输入" << NORMAL << std::endl;
+                continue;
+            }
+            uint32_t start_id = 0;
+            // 将args分为文件名和路径
+            size_t pos = arg.find_last_of('/');
+            string file_path, file_name;
+            if (pos != std::string::npos) {
+                file_path = arg.substr(0, pos + 1);
+                file_name = arg.substr(pos + 1);
+            } else {
+                file_path = "";
+                file_name = arg;
+            }
+            if (arg.front() != '/') {
+
+                file_path = get_absolute_path(cur_inode.i_id) + file_path;
+            }
+            if (is_dir_exit(file_path, start_id)) { // 目录存在
+                Inode dir_inode = Inode::read_inode(start_id);
+                if (is_file_exit(file_name, dir_inode)) {
+                    del_file(file_name, dir_inode);
+                }
+            }
+        } else if (cmd == "check") {
+        } else if (cmd == "ls") {
+            show_directory(cur_inode.i_id);
+        } else if (cmd == "test") {
+            std::string base_path = get_absolute_path(4);
+            // 调试
+            // 输出inodemap的bitset
+            int i = 0;
+            while (i < INODE_COUNT) {
+                if (block_bitmap.bitmap[i]) {
+                    cout << i << " ";
+                }
+                i++;
+            }
+        } else if (cmd == "clear") {
+            system("cls");
         } else {
-            cout << "未定义的命令，请重新输入" << endl;
+            cout << ERROR << "未定义的命令，请重新输入" << NORMAL << endl;
             continue;
         }
     }
@@ -357,8 +1204,3 @@ int main() {
     sb.last_load_time = load_time;
     sb.save_super_block();
 }
-
-// int main(){
-//     block_bitmap.load_bitmap();
-//     std::cout<<block_bitmap.bitmap.count()<<std::endl;
-// }
