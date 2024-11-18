@@ -468,7 +468,7 @@ bool is_dir_exit(const std::string &path, uint32_t &purpose_id) {
     return true;
 }
 
-bool is_file_exit(const std::string &name, Inode &cur_inode) {
+bool is_file_exit(const std::string &name, Inode cur_inode) {
     IndexBlock cur_ib = IndexBlock::read_index_block(cur_inode.i_indirect);
 
     bool found = false;
@@ -654,7 +654,7 @@ std::string read_file(std::string file_path, std::string file_name) {
             bytes_read += bytes_to_read;
             file.close();
         }
-        
+
         if (file_content.empty()) {
             return "it is empty";
         }
@@ -672,7 +672,7 @@ bool write_file(std::string file_path, std::string file_name, std::string conten
         return false;
     }
     Inode dir_inode = Inode::read_inode(start_id);
-    //向一个已经存在的文件后增加内容
+    // 向一个已经存在的文件后增加内容
     if (is_file_exit(file_name, dir_inode)) {
         Inode file_inode = Inode::read_inode(get_file_inode_id(file_name, dir_inode));
         IndexBlock file_ib = IndexBlock::read_index_block(file_inode.i_indirect);
@@ -680,18 +680,20 @@ bool write_file(std::string file_path, std::string file_name, std::string conten
         uint32_t file_size = file_inode.i_size;
         int need_num = (content.size() + file_size) / BLOCK_SIZE + 1;
         // 找到对应的块并写入
-        for (int i = 0 ;i<need_num;i++){
-            if (i<254){
-                if (file_ib.index[i] == UINT32_MAX){
+        for (int i = 0; i < need_num; i++) {
+            if (i < 254) {
+                if (file_ib.index[i] == UINT32_MAX) {
                     file_ib.index[i] = block_bitmap.get_free_block();
+                    file_inode.i_blocks++;
                 }
                 block_id = file_ib.index[i];
-            }else{
-                if (file_ib.next_index == UINT32_MAX){
+            } else {
+                if (file_ib.next_index == UINT32_MAX) {
                     file_ib.next_index = block_bitmap.get_free_block();
+                    file_inode.i_blocks++;
                 }
                 file_ib = IndexBlock::read_index_block(file_ib.next_index);
-                block_id = file_ib.index[i-254];
+                block_id = file_ib.index[i - 254];
             }
             std::ofstream file(disk_path, std::ios::binary | std::ios::out | std::ios::in);
             file.seekp(block_id * BLOCK_SIZE + (i == 0 ? file_size % BLOCK_SIZE : 0));
@@ -702,14 +704,40 @@ bool write_file(std::string file_path, std::string file_name, std::string conten
         file_inode.i_mtime = dir_inode.i_mtime = static_cast<uint32_t>(time(0));
         file_inode.save_inode();
         dir_inode.save_inode();
-         file_ib.save_index_block();
-         return true;
+        file_ib.save_index_block();
+        return true;
     } else {
         std::cout << ERROR << "目标文件" << file_name << "不存在" << NORMAL << std::endl;
         return false;
     }
+}
 
-   
+bool clear_file(std::string file_path, std::string file_name) {
+    uint32_t start_id = 0;
+    if (!is_dir_exit(file_path, start_id)) {
+        std::cout << ERROR << "目标目录" << file_path << "不存在" << NORMAL << std::endl;
+        return false;
+    }
+    Inode dir_inode = Inode::read_inode(start_id);
+    if (is_file_exit(file_name, dir_inode)) {
+        Inode file_inode = Inode::read_inode(get_file_inode_id(file_name, dir_inode));
+        IndexBlock file_ib = IndexBlock::read_index_block(file_inode.i_indirect);
+        for (uint32_t i = 1; i < 254; i++) { // 保留第一个块
+            if (file_ib.index[i] == UINT32_MAX) {
+                break;
+            }
+            block_bitmap.free_block(file_ib.index[i]);
+            file_inode.i_blocks--;
+        }
+        file_inode.i_size = 0;
+        file_inode.i_mtime = dir_inode.i_mtime = static_cast<uint32_t>(time(0));
+        file_inode.save_inode();
+        dir_inode.save_inode();
+        return true;
+    } else {
+        std::cout << ERROR << "目标文件" << file_name << "不存在" << NORMAL << std::endl;
+        return false;
+    }
 }
 // 输入一定是需要创建的目录
 bool make_dir(const std::string dir_name, Inode cur_inode) {
@@ -749,7 +777,7 @@ bool make_file(const std::string file_name, uint32_t inode_id) {
         Inode new_inode = {
             inode_bitmap.get_free_inode(),
             0,
-            0,
+            2,
             1,
             block_bitmap.get_free_block(),
             FILE_TYPE,
@@ -1141,12 +1169,95 @@ int main() {
             }
 
         } else if (cmd == "copy") {
-            // no args ,raise error
+            // copy -r /a path
             if (arg.empty()) {
                 cout << ERROR << "请输入文件名" << NORMAL << endl;
                 continue;
             }
             // args , analyse path
+            if (arg.find("//") != std::string::npos || arg.back() == '/') {
+                std::cout << ERROR << "文件名输入错误，请重新输入" << NORMAL << std::endl;
+                continue;
+            }
+            std::string resource_path, target_path, target_name;
+            uint32_t start_id = 0;
+            // 将args分为文件名和路径
+            size_t pos = arg.find_last_of('/');
+            if (pos != std::string::npos) {
+                target_path = arg.substr(0, pos + 1);
+                target_name = arg.substr(pos + 1);
+            } else {
+                target_path = "";
+                target_name = arg;
+            }
+            if (arg.front() != '/') {
+                target_path = get_absolute_path(cur_inode.i_id) + target_path;
+            }
+            bool overwrite = false;
+            if (is_dir_exit(target_path, start_id) && is_file_exit(target_name, Inode::read_inode(start_id))) {
+                std::cout << "目标文件" << target_name << "已存在" << std::endl;
+                std::cout << "是否覆盖？(y/n)" << std::endl;
+                std::string choice;
+                std::getline(cin, input);
+                std::istringstream iss(input);
+                iss >> choice;
+                if (choice != "y") {
+                    continue;
+                }
+                overwrite = true;
+            }
+            if (!is_dir_exit(target_path, start_id)) {
+                make_dir(target_path, root_inode);
+                is_dir_exit(target_path, start_id); // 找到目录id
+                make_file(target_name, start_id);
+            }
+            Inode dir_inode = Inode::read_inode(start_id);
+            std::string file_content;
+            if (options["-r"].empty()&&options["-fs"].empty()) {
+                std::cout << ERROR << "请指定源文件的系统" << NORMAL << std::endl;
+                continue;
+            } else if(!options["-r"].empty()){
+                resource_path = options["-r"];
+                // 读取系统文件的resource_path
+                std::fstream resource_file(resource_path, std::ios::in | std::ios::binary);
+                if (!resource_file.is_open()) {
+                    std::cout << ERROR << "文件" << resource_path << "不存在" << NORMAL << std::endl;
+                    continue;
+                }
+                // 读取文件内容
+                file_content = std::string((std::istreambuf_iterator<char>(resource_file)), std::istreambuf_iterator<char>());
+                resource_file.close();
+            }else{
+                resource_path = options["-fs"];
+                if (resource_path.find("//") != std::string::npos || resource_path.back() == '/') {
+                    std::cout << ERROR << "输入路径格式错误，请重新输入" << NORMAL << std::endl;
+                    continue;
+                }
+                if (resource_path.front() != '/') {
+                    resource_path = get_absolute_path(cur_inode.i_id) + resource_path;
+                }
+                string __path,__name;
+                size_t __pos = resource_path.find_last_of('/');
+                if (__pos != std::string::npos) {
+                    __path = resource_path.substr(0, __pos + 1);
+                    __name = resource_path.substr(__pos + 1);
+                } else {
+                    __path = "";
+                    __name = resource_path;
+                }
+                // 读取文件系统的resource_path
+                file_content = read_file(__path, __name);
+            }
+            if (overwrite) {
+                clear_file(target_path, target_name);
+                write_file(target_path, target_name, file_content);
+            } else {
+                if (!is_file_exit(target_name, dir_inode)) {
+                    make_file(target_name, start_id);
+                }
+                write_file(target_path, target_name, file_content);
+            }
+            std::cout << SUCCESS << "文件" << target_name << "复制成功" << NORMAL << std::endl;
         } else if (cmd == "del") {
             // no args ,raise error
             if (arg.empty()) {

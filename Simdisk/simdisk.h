@@ -84,7 +84,7 @@ bool is_dir_exit(const std::string &path, uint32_t &purpose_id);
  * @param name 文件名
  * @param cur_inode 当前目录的inode
  */
-bool is_file_exit(const std::string &name, Inode &cur_inode);
+bool is_file_exit(const std::string &name, Inode cur_inode);
 /**
  * @brief 确定目录名是否合法
  * 目录名不能包含/，且长度不能超过28，且不能为.和..
