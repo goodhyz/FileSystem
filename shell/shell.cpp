@@ -1,46 +1,51 @@
-#include <iostream>
 #include <windows.h>
-#include <string>
-struct SharedMemory {
-    char command[256];
-    char result[256];
-    HANDLE command_sem;
-    HANDLE result_sem;
-};
+#include <iostream>
+#include <cstring>
+#include "share_memory.h"
 
 int main() {
-    const char *shm_name = "simdisk_shm";
-    HANDLE hMapFile = OpenFileMapping(FILE_MAP_ALL_ACCESS, FALSE, shm_name);
+    // 打开内存映射文件
+    HANDLE hMapFile = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, "SimdiskSharedMemory");
     if (hMapFile == NULL) {
-        std::cerr << "Failed to open shared memory.\n";
+        std::cerr << "Could not open file mapping object: " << GetLastError() << std::endl;
         return 1;
     }
 
-    SharedMemory *shm = (SharedMemory *)MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SharedMemory));
+    // 映射到进程的地址空间
+    SharedMemory* shm = (SharedMemory*)MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SharedMemory));
     if (shm == NULL) {
-        std::cerr << "Failed to map shared memory.\n";
+        std::cerr << "Could not map view of file: " << GetLastError() << std::endl;
         CloseHandle(hMapFile);
         return 1;
     }
+    std::cout<<welcome1;
+    std::cout << "Welcome to Simdisk Shell!" << std::endl;
+    std::cout << "Type 'exit' to quit." << std::endl;
 
     while (true) {
-        std::cout<<welcome;
-        std::cout << "simdisk> ";
+        std::cout << shm->result;
         std::string command;
         std::getline(std::cin, command);
 
+        // 写入命令并通知后台
         strncpy(shm->command, command.c_str(), sizeof(shm->command) - 1);
+        shm->ready = true;
 
-        // 通知Simdisk有新命令
-        ReleaseSemaphore(shm->command_sem, 1, NULL);
+        // 等待结果
+        while (!shm->done) {
+            Sleep(10); // 避免忙等待
+        }
 
-        // 等待Simdisk处理结果
-        WaitForSingleObject(shm->result_sem, INFINITE);
+        // 读取结果并打印
         std::cout << "Result: " << shm->result << std::endl;
+
+        // 重置状态
+        shm->done = false;
 
         if (command == "exit") break;
     }
 
+    // 清理资源
     UnmapViewOfFile(shm);
     CloseHandle(hMapFile);
 

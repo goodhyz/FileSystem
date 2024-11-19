@@ -1,5 +1,5 @@
 #include "simdisk.h"
-
+#include "share_memory.h"
 // inode位图
 struct InodeBitmap {
     std::bitset<INODE_COUNT> bitmap;
@@ -975,7 +975,25 @@ bool del_dir(const uint32_t dir_inode_id) {
     return true;
 }
 int main() {
-    using namespace std;
+    // 创建内存映射文件
+    HANDLE hMapFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(SharedMemory), "SimdiskSharedMemory");
+    if (hMapFile == NULL) {
+        std::cerr << "Could not create file mapping object: " << GetLastError() << std::endl;
+        return 1;
+    }
+
+    // 映射到进程的地址空间
+    SharedMemory *shm = (SharedMemory *)MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SharedMemory));
+    if (shm == NULL) {
+        std::cerr << "Could not map view of file: " << GetLastError() << std::endl;
+        CloseHandle(hMapFile);
+        return 1;
+    }
+
+    // 初始化共享内存状态
+    shm->ready = false; // shell是否输入完毕
+    shm->done = false;  // simdisk是否完成操作
+    std::string shell_output = "";
     Inode root_inode, cur_inode;
     root_inode = cur_inode = Inode::read_inode(0);
     SuperBlock sb = SuperBlock::read_super_block();      // 读超级块
@@ -984,334 +1002,341 @@ int main() {
     std::string path = "/";
 
     while (1) {
-        string input, cmd, tmp_arg;
-        cout << USER << user + "@FileSystem" << NORMAL << ":" << PATH << path << NORMAL << "$ ";
-        vector<string> args;
-        std::getline(cin, input);
-        std::istringstream iss(input);
-        iss >> cmd;
-        while (iss >> tmp_arg) {
-            args.push_back(tmp_arg);
-        }
-        // 解析参数
-        std::map<std::string, std::string> options;
-        std::string arg;
-        for (size_t i = 0; i < args.size(); ++i) {
-            if (args[i].front() == '-') {
-                // 检查是否有参数
-                if (i + 1 < args.size() && args[i + 1].front() != '-') {
-                    options[args[i]] = args[i + 1];
-                    ++i; // 跳过参数
-                } else {
-                    options[args[i]] = "true";
-                }
-            } else {
-                // 将最后一个非选项参数赋值给 arg
-                arg = args[i];
+        shell_output += USER + user + "@FileSystem" + NORMAL + ":" + PATH + path + NORMAL + "$ ";
+        strncpy(shm->result, shell_output.c_str(), sizeof(shm->result) - 1);
+        std::string input, cmd, tmp_arg;
+        std::vector<std::string> args;
+        if (shm->ready) {
+            // 读取shell输入
+            std::string input = shm->command;
+            std::istringstream iss(input);
+            iss >> cmd;
+            while (iss >> tmp_arg) {
+                args.push_back(tmp_arg);
             }
-        }
-        if (arg.empty() && !args.empty()) {
-            arg = args.back();
-        }
-        if (cmd == "exit") {
-            break;
-        } else if (cmd == "init") {
-            init_disk();
-            sb = SuperBlock::read_super_block();
-        } else if (cmd == "info") {
-            sb.save_super_block();
-            sb.print_super_block();
-        } else if (cmd == "cd") {
-            uint32_t purpose_id = cur_inode.i_id;
-            if (arg.empty()) { // no args ,into root
-                cur_inode = root_inode;
-                path = "/";
-                continue;
-            }
-            if (arg.back() != '/') {
-                arg += "/";
-            }
-            if (is_path_dir(arg, purpose_id)) { // 是一个目录
-                cur_inode = Inode::read_inode(purpose_id);
-                path = get_absolute_path(purpose_id);
-            }
-        } else if (cmd == "md") {
-            // no args ,raise error
-            if (arg.empty()) {
-                cout << ERROR << "请输入目录名" << NORMAL << endl;
-                continue;
-            }
-            if (arg.back() != '/') {
-                arg += "/";
-            }
-            if (arg.find("//") != std::string::npos) {
-                std::cout << ERROR << "输入路径格式错误，请重新输入" << NORMAL << std::endl;
-                continue;
-            }
-            uint32_t start_id;
-            // 绝对路径
-            if (arg.front() == '/') {
-                start_id = 0;
-                if (is_dir_exit(arg, start_id)) {
-                    std::cout << ERROR << "目录" << arg << "已存在" << NORMAL << std::endl;
-                } else {
-                    if (make_dir(arg, root_inode)) {
-                        std::cout << SUCCESS << "目录" << arg << "创建成功" << NORMAL << std::endl;
-                    }
-                }
-            }
-            // 相对路径
-            else {
-                start_id = cur_inode.i_id;
-                if (is_dir_exit(arg, start_id)) {
-                    std::cout << ERROR << "目录" << arg << "已存在" << NORMAL << std::endl;
-                } else {
-                    if (make_dir(arg, cur_inode)) {
-                        std::cout << SUCCESS << "目录" << arg << "创建成功" << NORMAL << std::endl;
-                    }
-                }
-            }
-        } else if (cmd == "rd") {
-            // no args ,raise error
-            if (arg.empty()) {
-                cout << ERROR << "请输入目录名" << NORMAL << endl;
-                continue;
-            }
-            if (arg.find("//") != std::string::npos) {
-                std::cout << ERROR << "输入路径格式错误，请重新输入" << NORMAL << std::endl;
-                continue;
-            }
-            if (arg.back() != '/') {
-                arg += "/";
-            }
-            // 全部转换为绝对路径
-            string dir_path = arg;
-            uint32_t purpose_id = 0;
-            if (dir_path.front() != '/') {
-                dir_path = get_absolute_path(cur_inode.i_id) + dir_path;
-            }
-            if (is_dir_exit(dir_path, purpose_id)) {
-                if (is_dir_empty(purpose_id) || options["-rf"] == "true") {
-                    if (del_dir(purpose_id)) {
-                        std::cout << SUCCESS << "目录" << dir_path << "删除成功" << NORMAL << std::endl;
-                        if (cur_inode.i_id == purpose_id) {
-                            cur_inode = root_inode;
-                            path = "/";
-                        }
+            // 解析参数
+            std::map<std::string, std::string> options;
+            std::string arg;
+            for (size_t i = 0; i < args.size(); ++i) {
+                if (args[i].front() == '-') {
+                    // 检查是否有参数
+                    if (i + 1 < args.size() && args[i + 1].front() != '-') {
+                        options[args[i]] = args[i + 1];
+                        ++i; // 跳过参数
                     } else {
-                        std::cout << ERROR << "目录" << dir_path << "不为空" << NORMAL << std::endl;
+                        options[args[i]] = "true";
                     }
                 } else {
-                    std::cout << ERROR << "目录" << dir_path << "不存在" << NORMAL << std::endl;
+                    // 将最后一个非选项参数赋值给 arg
+                    arg = args[i];
                 }
             }
-        } else if (cmd == "newfile") {
-            // no args ,raise error
-            if (arg.empty()) {
-                cout << ERROR << "请输入文件名" << NORMAL << endl;
-                continue;
+            if (arg.empty() && !args.empty()) {
+                arg = args.back();
             }
-            // args , analyse path
-            if (arg.find("//") != std::string::npos || arg.back() == '/') {
-                std::cout << ERROR << "文件名输入错误，请重新输入" << NORMAL << std::endl;
-                continue;
-            }
-            uint32_t start_id = 0;
-            // 将args分为文件名和路径
-            size_t pos = arg.find_last_of('/');
-            string file_path, file_name;
-            if (pos != std::string::npos) {
-                file_path = arg.substr(0, pos + 1);
-                file_name = arg.substr(pos + 1);
-            } else {
-                file_path = "";
-                file_name = arg;
-            }
-            if (arg.front() != '/') {
-
-                file_path = get_absolute_path(cur_inode.i_id) + file_path;
-            }
-            if (is_dir_exit(file_path, start_id)) { // 目录存在
-                make_file(file_name, start_id);
-            } else { // 目录不存在
-                if (make_dir(file_path, root_inode)) {
-                    is_dir_exit(file_path, start_id); // 找到目录
-                    make_file(file_name, start_id);
-                }
-            }
-        } else if (cmd == "cat") {
-            // no args ,raise error
-            if (arg.empty()) {
-                cout << ERROR << "请输入文件名" << NORMAL << endl;
-                continue;
-            }
-            // 将args分为文件名和路径
-            size_t pos = arg.find_last_of('/');
-            string file_path, file_name;
-            if (pos != std::string::npos) {
-                file_path = arg.substr(0, pos + 1);
-                file_name = arg.substr(pos + 1);
-            } else {
-                file_path = "";
-                file_name = arg;
-            }
-            if (arg.front() != '/') {
-                file_path = get_absolute_path(cur_inode.i_id) + file_path;
-            }
-            // 读文件
-            if (options["-i"].empty()) {
-                std::string output = read_file(file_path, file_name);
-                if (!output.empty()) {
-                    std::cout << output << std::endl;
-                }
-            } else { // -i
-                write_file(file_path, file_name, options["-i"]);
-            }
-
-        } else if (cmd == "copy") {
-            // copy -r /a path
-            if (arg.empty()) {
-                cout << ERROR << "请输入文件名" << NORMAL << endl;
-                continue;
-            }
-            // args , analyse path
-            if (arg.find("//") != std::string::npos || arg.back() == '/') {
-                std::cout << ERROR << "文件名输入错误，请重新输入" << NORMAL << std::endl;
-                continue;
-            }
-            std::string resource_path, target_path, target_name;
-            uint32_t start_id = 0;
-            // 将args分为文件名和路径
-            size_t pos = arg.find_last_of('/');
-            if (pos != std::string::npos) {
-                target_path = arg.substr(0, pos + 1);
-                target_name = arg.substr(pos + 1);
-            } else {
-                target_path = "";
-                target_name = arg;
-            }
-            if (arg.front() != '/') {
-                target_path = get_absolute_path(cur_inode.i_id) + target_path;
-            }
-            bool overwrite = false;
-            if (is_dir_exit(target_path, start_id) && is_file_exit(target_name, Inode::read_inode(start_id))) {
-                std::cout << "目标文件" << target_name << "已存在" << std::endl;
-                std::cout << "是否覆盖？(y/n)" << std::endl;
-                std::string choice;
-                std::getline(cin, input);
-                std::istringstream iss(input);
-                iss >> choice;
-                if (choice != "y") {
+            if (cmd == "exit") {
+                break;
+            } else if (cmd == "init") {
+                init_disk();
+                sb = SuperBlock::read_super_block();
+            } else if (cmd == "info") {
+                sb.save_super_block();
+                sb.print_super_block();
+            } else if (cmd == "cd") {
+                uint32_t purpose_id = cur_inode.i_id;
+                if (arg.empty()) { // no args ,into root
+                    cur_inode = root_inode;
+                    path = "/";
                     continue;
                 }
-                overwrite = true;
-            }
-            if (!is_dir_exit(target_path, start_id)) {
-                make_dir(target_path, root_inode);
-                is_dir_exit(target_path, start_id); // 找到目录id
-                make_file(target_name, start_id);
-            }
-            Inode dir_inode = Inode::read_inode(start_id);
-            std::string file_content;
-            if (options["-r"].empty()&&options["-fs"].empty()) {
-                std::cout << ERROR << "请指定源文件的系统" << NORMAL << std::endl;
-                continue;
-            } else if(!options["-r"].empty()){
-                resource_path = options["-r"];
-                // 读取系统文件的resource_path
-                std::fstream resource_file(resource_path, std::ios::in | std::ios::binary);
-                if (!resource_file.is_open()) {
-                    std::cout << ERROR << "文件" << resource_path << "不存在" << NORMAL << std::endl;
+                if (arg.back() != '/') {
+                    arg += "/";
+                }
+                if (is_path_dir(arg, purpose_id)) { // 是一个目录
+                    cur_inode = Inode::read_inode(purpose_id);
+                    path = get_absolute_path(purpose_id);
+                }
+            } else if (cmd == "md") {
+                // no args ,raise error
+                if (arg.empty()) {
+                    std::cout << ERROR << "请输入目录名" << NORMAL << std::endl;
                     continue;
                 }
-                // 读取文件内容
-                file_content = std::string((std::istreambuf_iterator<char>(resource_file)), std::istreambuf_iterator<char>());
-                resource_file.close();
-            }else{
-                resource_path = options["-fs"];
-                if (resource_path.find("//") != std::string::npos || resource_path.back() == '/') {
+                if (arg.back() != '/') {
+                    arg += "/";
+                }
+                if (arg.find("//") != std::string::npos) {
                     std::cout << ERROR << "输入路径格式错误，请重新输入" << NORMAL << std::endl;
                     continue;
                 }
-                if (resource_path.front() != '/') {
-                    resource_path = get_absolute_path(cur_inode.i_id) + resource_path;
+                uint32_t start_id;
+                // 绝对路径
+                if (arg.front() == '/') {
+                    start_id = 0;
+                    if (is_dir_exit(arg, start_id)) {
+                        std::cout << ERROR << "目录" << arg << "已存在" << NORMAL << std::endl;
+                    } else {
+                        if (make_dir(arg, root_inode)) {
+                            std::cout << SUCCESS << "目录" << arg << "创建成功" << NORMAL << std::endl;
+                        }
+                    }
                 }
-                string __path,__name;
-                size_t __pos = resource_path.find_last_of('/');
-                if (__pos != std::string::npos) {
-                    __path = resource_path.substr(0, __pos + 1);
-                    __name = resource_path.substr(__pos + 1);
+                // 相对路径
+                else {
+                    start_id = cur_inode.i_id;
+                    if (is_dir_exit(arg, start_id)) {
+                        std::cout << ERROR << "目录" << arg << "已存在" << NORMAL << std::endl;
+                    } else {
+                        if (make_dir(arg, cur_inode)) {
+                            std::cout << SUCCESS << "目录" << arg << "创建成功" << NORMAL << std::endl;
+                        }
+                    }
+                }
+            } else if (cmd == "rd") {
+                // no args ,raise error
+                if (arg.empty()) {
+                    std::cout << ERROR << "请输入目录名" << NORMAL << std::endl;
+                    continue;
+                }
+                if (arg.find("//") != std::string::npos) {
+                    std::cout << ERROR << "输入路径格式错误，请重新输入" << NORMAL << std::endl;
+                    continue;
+                }
+                if (arg.back() != '/') {
+                    arg += "/";
+                }
+                // 全部转换为绝对路径
+                std::string dir_path = arg;
+                uint32_t purpose_id = 0;
+                if (dir_path.front() != '/') {
+                    dir_path = get_absolute_path(cur_inode.i_id) + dir_path;
+                }
+                if (is_dir_exit(dir_path, purpose_id)) {
+                    if (is_dir_empty(purpose_id) || options["-rf"] == "true") {
+                        if (del_dir(purpose_id)) {
+                            std::cout << SUCCESS << "目录" << dir_path << "删除成功" << NORMAL << std::endl;
+                            if (cur_inode.i_id == purpose_id) {
+                                cur_inode = root_inode;
+                                path = "/";
+                            }
+                        } else {
+                            std::cout << ERROR << "目录" << dir_path << "不为空" << NORMAL << std::endl;
+                        }
+                    } else {
+                        std::cout << ERROR << "目录" << dir_path << "不存在" << NORMAL << std::endl;
+                    }
+                }
+            } else if (cmd == "newfile") {
+                // no args ,raise error
+                if (arg.empty()) {
+                    std::cout << ERROR << "请输入文件名" << NORMAL << std::endl;
+                    continue;
+                }
+                // args , analyse path
+                if (arg.find("//") != std::string::npos || arg.back() == '/') {
+                    std::cout << ERROR << "文件名输入错误，请重新输入" << NORMAL << std::endl;
+                    continue;
+                }
+                uint32_t start_id = 0;
+                // 将args分为文件名和路径
+                size_t pos = arg.find_last_of('/');
+                std::string file_path, file_name;
+                if (pos != std::string::npos) {
+                    file_path = arg.substr(0, pos + 1);
+                    file_name = arg.substr(pos + 1);
                 } else {
-                    __path = "";
-                    __name = resource_path;
+                    file_path = "";
+                    file_name = arg;
                 }
-                // 读取文件系统的resource_path
-                file_content = read_file(__path, __name);
-            }
-            if (overwrite) {
-                clear_file(target_path, target_name);
-                write_file(target_path, target_name, file_content);
-            } else {
-                if (!is_file_exit(target_name, dir_inode)) {
+                if (arg.front() != '/') {
+
+                    file_path = get_absolute_path(cur_inode.i_id) + file_path;
+                }
+                if (is_dir_exit(file_path, start_id)) { // 目录存在
+                    make_file(file_name, start_id);
+                } else { // 目录不存在
+                    if (make_dir(file_path, root_inode)) {
+                        is_dir_exit(file_path, start_id); // 找到目录
+                        make_file(file_name, start_id);
+                    }
+                }
+            } else if (cmd == "cat") {
+                // no args ,raise error
+                if (arg.empty()) {
+                    std::cout << ERROR << "请输入文件名" << NORMAL << std::endl;
+                    continue;
+                }
+                // 将args分为文件名和路径
+                size_t pos = arg.find_last_of('/');
+                std::string file_path, file_name;
+                if (pos != std::string::npos) {
+                    file_path = arg.substr(0, pos + 1);
+                    file_name = arg.substr(pos + 1);
+                } else {
+                    file_path = "";
+                    file_name = arg;
+                }
+                if (arg.front() != '/') {
+                    file_path = get_absolute_path(cur_inode.i_id) + file_path;
+                }
+                // 读文件
+                if (options["-i"].empty()) {
+                    std::string output = read_file(file_path, file_name);
+                    if (!output.empty()) {
+                        std::cout << output << std::endl;
+                    }
+                } else { // -i
+                    write_file(file_path, file_name, options["-i"]);
+                }
+
+            } else if (cmd == "copy") {
+                // copy -r /a path
+                if (arg.empty()) {
+                    std::cout << ERROR << "请输入文件名" << NORMAL << std::endl;
+                    continue;
+                }
+                // args , analyse path
+                if (arg.find("//") != std::string::npos || arg.back() == '/') {
+                    std::cout << ERROR << "文件名输入错误，请重新输入" << NORMAL << std::endl;
+                    continue;
+                }
+                std::string resource_path, target_path, target_name;
+                uint32_t start_id = 0;
+                // 将args分为文件名和路径
+                size_t pos = arg.find_last_of('/');
+                if (pos != std::string::npos) {
+                    target_path = arg.substr(0, pos + 1);
+                    target_name = arg.substr(pos + 1);
+                } else {
+                    target_path = "";
+                    target_name = arg;
+                }
+                if (arg.front() != '/') {
+                    target_path = get_absolute_path(cur_inode.i_id) + target_path;
+                }
+                bool overwrite = false;
+                if (is_dir_exit(target_path, start_id) && is_file_exit(target_name, Inode::read_inode(start_id))) {
+                    std::cout << "目标文件" << target_name << "已存在" << std::endl;
+                    std::cout << "是否覆盖？(y/n)" << std::endl;
+                    std::string choice;
+                    std::getline(std::cin, input);
+                    std::istringstream iss(input);
+                    iss >> choice;
+                    if (choice != "y") {
+                        continue;
+                    }
+                    overwrite = true;
+                }
+                if (!is_dir_exit(target_path, start_id)) {
+                    make_dir(target_path, root_inode);
+                    is_dir_exit(target_path, start_id); // 找到目录id
                     make_file(target_name, start_id);
                 }
-                write_file(target_path, target_name, file_content);
-            }
-            std::cout << SUCCESS << "文件" << target_name << "复制成功" << NORMAL << std::endl;
-        } else if (cmd == "del") {
-            // no args ,raise error
-            if (arg.empty()) {
-                cout << ERROR << "请输入文件名" << NORMAL << endl;
-                continue;
-            }
-            // args , analyse path
-            if (arg.find("//") != std::string::npos || arg.back() == '/') {
-                std::cout << ERROR << "文件名输入错误，请重新输入" << NORMAL << std::endl;
-                continue;
-            }
-            uint32_t start_id = 0;
-            // 将args分为文件名和路径
-            size_t pos = arg.find_last_of('/');
-            string file_path, file_name;
-            if (pos != std::string::npos) {
-                file_path = arg.substr(0, pos + 1);
-                file_name = arg.substr(pos + 1);
-            } else {
-                file_path = "";
-                file_name = arg;
-            }
-            if (arg.front() != '/') {
-
-                file_path = get_absolute_path(cur_inode.i_id) + file_path;
-            }
-            if (is_dir_exit(file_path, start_id)) { // 目录存在
                 Inode dir_inode = Inode::read_inode(start_id);
-                if (is_file_exit(file_name, dir_inode)) {
-                    del_file(file_name, dir_inode);
+                std::string file_content;
+                if (options["-r"].empty() && options["-fs"].empty()) {
+                    std::cout << ERROR << "请指定源文件的系统" << NORMAL << std::endl;
+                    continue;
+                } else if (!options["-r"].empty()) {
+                    resource_path = options["-r"];
+                    // 读取系统文件的resource_path
+                    std::fstream resource_file(resource_path, std::ios::in | std::ios::binary);
+                    if (!resource_file.is_open()) {
+                        std::cout << ERROR << "文件" << resource_path << "不存在" << NORMAL << std::endl;
+                        continue;
+                    }
+                    // 读取文件内容
+                    file_content = std::string((std::istreambuf_iterator<char>(resource_file)), std::istreambuf_iterator<char>());
+                    resource_file.close();
+                } else {
+                    resource_path = options["-fs"];
+                    if (resource_path.find("//") != std::string::npos || resource_path.back() == '/') {
+                        std::cout << ERROR << "输入路径格式错误，请重新输入" << NORMAL << std::endl;
+                        continue;
+                    }
+                    if (resource_path.front() != '/') {
+                        resource_path = get_absolute_path(cur_inode.i_id) + resource_path;
+                    }
+                    std::string __path, __name;
+                    size_t __pos = resource_path.find_last_of('/');
+                    if (__pos != std::string::npos) {
+                        __path = resource_path.substr(0, __pos + 1);
+                        __name = resource_path.substr(__pos + 1);
+                    } else {
+                        __path = "";
+                        __name = resource_path;
+                    }
+                    // 读取文件系统的resource_path
+                    file_content = read_file(__path, __name);
                 }
-            }
-        } else if (cmd == "check") {
-        } else if (cmd == "ls") {
-            show_directory(cur_inode.i_id);
-        } else if (cmd == "test") {
-            std::string base_path = get_absolute_path(4);
-            // 调试
-            // 输出inodemap的bitset
-            int i = 0;
-            while (i < INODE_COUNT) {
-                if (block_bitmap.bitmap[i]) {
-                    cout << i << " ";
+                if (overwrite) {
+                    clear_file(target_path, target_name);
+                    write_file(target_path, target_name, file_content);
+                } else {
+                    if (!is_file_exit(target_name, dir_inode)) {
+                        make_file(target_name, start_id);
+                    }
+                    write_file(target_path, target_name, file_content);
                 }
-                i++;
+                std::cout << SUCCESS << "文件" << target_name << "复制成功" << NORMAL << std::endl;
+            } else if (cmd == "del") {
+                // no args ,raise error
+                if (arg.empty()) {
+                    std::cout << ERROR << "请输入文件名" << NORMAL << std::endl;
+                    continue;
+                }
+                // args , analyse path
+                if (arg.find("//") != std::string::npos || arg.back() == '/') {
+                    std::cout << ERROR << "文件名输入错误，请重新输入" << NORMAL << std::endl;
+                    continue;
+                }
+                uint32_t start_id = 0;
+                // 将args分为文件名和路径
+                size_t pos = arg.find_last_of('/');
+                std::string file_path, file_name;
+                if (pos != std::string::npos) {
+                    file_path = arg.substr(0, pos + 1);
+                    file_name = arg.substr(pos + 1);
+                } else {
+                    file_path = "";
+                    file_name = arg;
+                }
+                if (arg.front() != '/') {
+
+                    file_path = get_absolute_path(cur_inode.i_id) + file_path;
+                }
+                if (is_dir_exit(file_path, start_id)) { // 目录存在
+                    Inode dir_inode = Inode::read_inode(start_id);
+                    if (is_file_exit(file_name, dir_inode)) {
+                        del_file(file_name, dir_inode);
+                    }
+                }
+            } else if (cmd == "check") {
+            } else if (cmd == "ls") {
+                show_directory(cur_inode.i_id);
+            } else if (cmd == "test") {
+                std::string base_path = get_absolute_path(4);
+                // 调试
+                // 输出inodemap的bitset
+                int i = 0;
+                while (i < INODE_COUNT) {
+                    if (block_bitmap.bitmap[i]) {
+                        std::cout << i << " ";
+                    }
+                    i++;
+                }
+            } else if (cmd == "clear") {
+                system("cls");
+            } else {
+                std::cout << ERROR << "未定义的命令，请重新输入" << NORMAL << std::endl;
+                continue;
             }
-        } else if (cmd == "clear") {
-            system("cls");
-        } else {
-            cout << ERROR << "未定义的命令，请重新输入" << NORMAL << endl;
-            continue;
+            shm->done = true;
         }
+        // 退出程序前保存超级块
+        sb.last_load_time = load_time;
+        sb.save_super_block();
+
     }
-    // 退出程序前保存超级块
-    sb.last_load_time = load_time;
-    sb.save_super_block();
+    return 0;
 }
