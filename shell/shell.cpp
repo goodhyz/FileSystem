@@ -1,7 +1,4 @@
 #include "share_memory.h"
-#include <cstring>
-#include <iostream>
-#include <windows.h>
 
 int main() {
     // 打开内存映射文件
@@ -19,41 +16,91 @@ int main() {
         // return 1;
     }
 
+    while (true) {
+        shm->is_login_fail = shm->is_login_success = false;
+        // 输入账号密码
+        std::cout << "账号：";
+        std::string user;
+        std::cin >> user;
+        std::cout << "密码：";
+        std::string password;
+        // std::cin>>password;
+        char ch;
+        while ((ch = _getch()) != '\r') {          // 读取字符直到回车
+            if (ch == '\b' && !password.empty()) { // 处理退格键
+                std::cout << "\b \b";
+                password.pop_back();
+            } else if (ch != '\b') {
+                std::cout << '*'; // 显示星号
+                password.push_back(ch);
+            }
+        }
+        std::cin.get(); // 处理回车
+        std::cout << std::endl; // 换行
+        std::string login_info = user + " " + password;
+        strncpy(shm->command, login_info.c_str(), sizeof(shm->command) - 1);
+        shm->is_login_prompt = true;
+
+        while (true) {
+            if (shm->is_login_success) {
+                break;
+            } else if (shm->is_login_fail) {
+                std::cout << shm->result;
+                break;
+            }
+            Sleep(10);
+        }
+        if (shm->is_login_success) {
+            // 登录成功
+            break;
+        }
+    }
+
     // 程序的进入页面
-    std::cout << welcome1<<std::endl;
+    std::cout << welcome1 << std::endl;
     std::cout << "键入 'help' 获得帮助" << std::endl;
     std::cout << "键入 'exit' 停止程序" << std::endl;
-    std::cout << shm->result;
+
     while (true) {
+        // 读取结果并打印
+        std::cout << shm->result;
         std::string command;
         std::getline(std::cin, command);
-        // 确保后端程序在线
-        if (hMapFile == NULL) {
-            std::cerr << __ERROR << "后端服务失联, 请检查正常后重启" << __NORMAL << std::endl;
-            return 1;
-        }
         if (command == "help") {
             std::cout << "命令列表:" << std::endl;
             std::cout << "    help: 显示帮助信息" << std::endl;
             std::cout << "    exit: 退出程序" << std::endl;
-            std::cout << "    clear: 清空屏幕" << std::endl;
-            std::cout << "    其他: 执行命令" << std::endl;
+            std::cout << "    info: 显示系统信息" << std::endl;
+            std::cout << "    cd: 切换目录" << std::endl;
+            std::cout << "    md: 创建目录" << std::endl;
+            std::cout << "    rd: 删除目录" << std::endl;
+            std::cout << "    newfile: 创建新文件" << std::endl;
+            std::cout << "    cat: 显示文件内容或向文件追加内容" << std::endl;
+            std::cout << "    copy: 复制文件" << std::endl;
+            std::cout << "    del: 删除文件" << std::endl;
+            std::cout << "    check: 检查文件或目录" << std::endl;
+            std::cout << "    dir: 显示目录内容" << std::endl;
+            std::cout << "    clear 或 cls: 清空屏幕" << std::endl;
             continue;
         }
         // 写入命令并通知后台
         strncpy(shm->command, command.c_str(), sizeof(shm->command) - 1);
         shm->ready = true;
 
+        int start_time = clock();
         // 等待结果
         while (!shm->done) {
             Sleep(10); // 避免忙等待
+            if ((clock() - start_time) > 3 * CLOCKS_PER_SEC) {
+                std::cerr << __ERROR << "后端服务可能失联, 请检查正常后重启" << __NORMAL << std::endl;
+                return 1;
+            }
         }
+
         if (command == "exit")
             break;
         else if (command == "clear")
             system("cls");
-        // 读取结果并打印
-        std::cout << shm->result;
 
         // 重置状态
         shm->done = false;

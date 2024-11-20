@@ -6,6 +6,7 @@
  */
 
 #pragma once
+#include "encrypt.h"
 #include <bitset>
 #include <cstdint>
 #include <cstring>
@@ -13,10 +14,10 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <map>
 
 //------------------------------------------------------------------------------------------------
 // 文件系统的一些参数
@@ -50,46 +51,32 @@ struct Inode;
 struct DirEntry;
 struct DirBlock;
 struct IndexBlock;
+struct User;
 
 //------------------------------------------------------------------------------------------------
 // 函数声明
 //------------------------------------------------------------------------------------------------
 
 std::string format_time(uint32_t time);
-
 std::string get_absolute_path(uint32_t inode_id);
-
 bool is_path_dir(const std::string &path, uint32_t &purpose_id, std::string &shell_output);
-
 bool is_dir_exit(const std::string &path, uint32_t &purpose_id);
-
 bool is_file_exit(const std::string &name, Inode cur_inode);
-
 bool is_valid_dir_name(const std::string &dir_name);
-
 uint32_t get_file_inode_id(const std::string &file_name, Inode &dir_inode);
-
 uint32_t make_dir_help(const std::string &dir_name, Inode &cur_inode);
-
 std::string read_file(std::string file_path, std::string file_name);
-
 bool write_file(std::string file_path, std::string file_name, std::string content);
-
 bool is_dir_empty(const uint32_t dir_inode_id);
-
 void init_disk();
-
 std::string show_directory(uint32_t inode_id);
-
 bool make_dir(const std::string dir_name, Inode cur_inode);
-
-bool make_file(const std::string file_name, uint32_t inode_id);
-
+bool make_file(const std::string file_name, uint32_t inode_id, std::string &_shell_output);
 bool del_file(const std::string file_name, Inode &cur_inode, std::string &shell_output);
-
 bool del_dir(const uint32_t the_purpose_dir_inode_id, std::string &shell_output);
-
-
+bool login(const std::string &user, const std::string &password, std::string &_shell_output, User &__user) ;
+bool adduser(const std::string &user, const std::string &password,uint32_t uid,uint32_t gid) ;
+std::string hash_pwd(const std::string &pwd);
 //------------------------------------------------------------------------------------------------
 // 全局变量
 //------------------------------------------------------------------------------------------------
@@ -97,9 +84,9 @@ bool del_dir(const uint32_t the_purpose_dir_inode_id, std::string &shell_output)
 const std::string disk_path = "../Disk/MyDisk.dat";
 extern InodeBitmap inode_bitmap;
 extern BlockBitmap block_bitmap;
-//输出相关
+// 输出相关
 const std::string __ERROR = "\033[31m";
-const std::string __SUCCESS = "\033[33m";
+const std::string __SUCCESS = "\033[36m";
 const std::string __PATH = "\033[01;34m";
 const std::string __NORMAL = "\033[0m";
 const std::string __USER = "\033[01;32m";
@@ -461,6 +448,23 @@ struct IndexBlock {
     }
 };
 
+struct User {
+    std::string username;
+    uint32_t uid;
+    uint32_t gid;
+
+    User(){}
+    User(std::string _username, uint32_t _uid, uint32_t _gid) {
+        username = _username;
+        uid = _uid;
+        gid = _gid;
+    }
+    void set(std::string _username,uint32_t _uid, uint32_t _gid) {
+        username = _username;
+        uid = _uid;
+        gid = _gid;
+    }
+};
 
 //------------------------------------------------------------------------------------------------
 // 函数定义
@@ -478,7 +482,6 @@ std::string format_time(uint32_t raw_time) {
     strftime(local_buffer, 80, "%Y-%m-%d %H:%M:%S", local_tm);
     return std::string(local_buffer);
 }
-
 
 /**
  * @brief 创建或格式化磁盘
@@ -532,6 +535,8 @@ void init_disk() {
     DirBlock root_db;
     root_db.init_DirBlock(root_inode.i_id, root_inode.i_id);
     root_db.save_dir_block(root_ib.index[0]);
+    // 添加一个root用户
+    adduser("root","240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",0,0);
     // 最后保存超级块
     sb.save_super_block(disk_path, 0);
 }
@@ -747,7 +752,7 @@ bool is_file_exit(const std::string &name, Inode cur_inode) {
                 if (dir_block.entries[j].type == UNDEFINE_TYPE) {
                     continue;
                 }
-                if (dir_block.entries[j].name == name) {
+                if (dir_block.entries[j].name == name && dir_block.entries[j].type == FILE_TYPE) {
                     found = true;
                     break;
                 }
@@ -1089,7 +1094,7 @@ bool make_dir(const std::string dir_name, Inode cur_inode) {
  * @param inode_id 当前目录的inode
  * @return 是否创建成功
  */
-bool make_file(const std::string file_name, uint32_t inode_id) {
+bool make_file(const std::string file_name, uint32_t inode_id, std::string &_shell_output) {
     Inode parent_inode = Inode::read_inode(inode_id);
     if (!is_file_exit(file_name, parent_inode)) {
         IndexBlock cur_ib = IndexBlock::read_index_block(parent_inode.i_indirect);
@@ -1145,6 +1150,7 @@ bool make_file(const std::string file_name, uint32_t inode_id) {
         return true;
     } else {
         std::cout << __ERROR << "文件" << file_name << "已存在" << __NORMAL << std::endl;
+        _shell_output = __ERROR + "文件" + file_name + "已存在\n" + __NORMAL;
         return false;
     }
 }
@@ -1312,4 +1318,84 @@ bool del_dir(const uint32_t dir_inode_id, std::string &_shell_output) {
         parent_ib = IndexBlock::read_index_block(parent_ib.next_index);
     }
     return true;
+}
+
+/**
+ * @brief 登录
+ */
+bool login(const std::string &user, const std::string &password, std::string &_shell_output, User &__user) {
+    // 创建一个账号密码map
+    std::map<std::string, std::string> user_pwd_pair;
+    std::map<std::string, std::pair<uint32_t, uint32_t>> user_info; // 用于存储用户名对应的uid和gid
+    std::string all_info = read_file("/etc/", "passwd");
+    std::istringstream iss(all_info);
+    std::string line;
+
+    // 解析文件内容，填充user_pwd_pair和user_info
+    while (std::getline(iss, line)) {
+        std::istringstream line_stream(line);
+        std::string username, hashed_password, uid_str, gid_str;
+
+        if (std::getline(line_stream, username, ':') &&
+            std::getline(line_stream, hashed_password, ':') &&
+            std::getline(line_stream, uid_str, ':') &&
+            std::getline(line_stream, gid_str, ':')) {
+            uint32_t uid = std::stoul(uid_str);
+            uint32_t gid = std::stoul(gid_str);
+            user_pwd_pair[username] = hashed_password;
+            user_info[username] = std::make_pair(uid, gid);
+        }
+    }
+    // 检查用户是否存在
+    auto it = user_pwd_pair.find(user);
+    if (it == user_pwd_pair.end()) {
+        _shell_output = __ERROR + "用户不存在，请向管理员申请" + __NORMAL + "\n";
+        return false;
+    }
+    // 检查输入的用户名和密码
+    if (it != user_pwd_pair.end()) {
+        std::string hashed_input_password = hash_pwd(password);
+        if (hashed_input_password == it->second) {
+            // _shell_output = __SUCCESS + "登录成功"+ __NORMAL+"\n";
+            __user.set(user, user_info[user].first, user_info[user].second);
+            return true;
+        }
+    }
+
+    _shell_output = __ERROR+"密码错误，请重新输入"+__NORMAL+"\n";
+    return false;
+}
+
+/**
+ * @brief 加密密码
+ */
+std::string hash_pwd(const std::string &pwd) {
+    SHA256 sha256;
+    sha256.update(pwd);
+    return sha256.final();
+}
+
+bool adduser(const std::string &user, const std::string &password,uint32_t uid,uint32_t gid) {
+    // 定义一个加密函数
+    std::string pwd;
+    if(password.length() != 64){
+        pwd = hash_pwd(password);
+    }else{
+        pwd = password;
+    }
+    std::string file_path = "/etc/";
+    std::string file_name = "passwd";
+    uint32_t start_id = 0;
+    std::string shell_output;
+    Inode root_inode = Inode::read_inode(0);
+    if (is_dir_exit(file_path, start_id)) { // 目录存在
+        make_file(file_name, start_id, shell_output);
+    } else { // 目录不存在
+        if (make_dir(file_path, root_inode)) {
+            is_dir_exit(file_path, start_id); // 找到目录
+            make_file(file_name, start_id, shell_output);
+        }
+    }
+    std::string content = user + ":" + pwd + ":"+std::to_string(uid)+":"+std::to_string(gid)+"\n";
+    return write_file(file_path, file_name, content);
 }

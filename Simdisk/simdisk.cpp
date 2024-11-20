@@ -5,6 +5,7 @@
 InodeBitmap inode_bitmap;
 BlockBitmap block_bitmap;
 
+// 服务端程序的逻辑
 int main() {
     // 创建内存映射文件
     HANDLE hMapFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(SharedMemory), "SimdiskSharedMemory");
@@ -24,14 +25,44 @@ int main() {
     // 初始化共享内存状态
     shm->ready = false; // shell是否输入完毕
     shm->done = false;  // simdisk是否完成操作
+    shm->is_login_prompt = false;
+    shm->is_login_success = false;
+    shm->is_login_fail = false;
+
     std::string shell_output = "";
     Inode root_inode, cur_inode;
     root_inode = cur_inode = Inode::read_inode(0);
+    User user = User();
     SuperBlock sb = SuperBlock::read_super_block();      // 读超级块
     uint32_t load_time = static_cast<uint32_t>(time(0)); // 保留登录时间
-    std::string user = "root";
+
+    // 处理登录逻辑 多用户
+    while (true) {
+        if (shm->is_login_prompt) {
+            // 读取账号密码
+            std::istringstream iss(shm->command);
+            std::string username, password;
+            iss >> username >> password;
+            // 判断账号密码正确性
+            if (login(username, password, shell_output, user)) { // 正确
+                shm->is_login_success = true;
+                shm->is_login_prompt = false;
+            } else { // 错误
+                shm->is_login_fail = true;
+                shm->is_login_prompt = false;
+            }
+        }
+        strncpy(shm->result, shell_output.c_str(), sizeof(shm->result) - 1);
+        if (shm->is_login_success) {
+            break;
+        }
+        Sleep(10);
+    }
+
+    // 当前系统的信息
     std::string path = "/";
-    shell_output = __USER + user + "@FileSystem" + __NORMAL + ":" + __PATH + path + __NORMAL + "$ ";
+    shell_output = "上次登录时间: " + format_time(sb.last_load_time) + "\n";
+    shell_output += __USER + user.username + "@FileSystem" + __NORMAL + ":" + __PATH + path + __NORMAL + "$ ";
     strncpy(shm->result, shell_output.c_str(), sizeof(shm->result) - 1);
     while (1) {
         if (shm->ready) {
@@ -208,13 +239,14 @@ int main() {
                         file_path = get_absolute_path(cur_inode.i_id) + file_path;
                     }
                     if (is_dir_exit(file_path, start_id)) { // 目录存在
-                        make_file(file_name, start_id);
+                        make_file(file_name, start_id, shell_output);
                     } else { // 目录不存在
                         if (make_dir(file_path, root_inode)) {
                             is_dir_exit(file_path, start_id); // 找到目录
-                            make_file(file_name, start_id);
+                            make_file(file_name, start_id, shell_output);
                         }
                     }
+                    shell_output += __SUCCESS + "文件" + file_name + "创建成功" + __NORMAL + "\n";
                     break;
                 }
             } else if (cmd == "cat" || cmd == "CAT") {
@@ -238,16 +270,24 @@ int main() {
                     if (arg.front() != '/') {
                         file_path = get_absolute_path(cur_inode.i_id) + file_path;
                     }
-                    // 读文件
-                    if (options["-i"].empty()) {
-                        std::string output = read_file(file_path, file_name);
-                        if (!output.empty()) {
-                            std::cout << output << std::endl;
-                            shell_output += output + "\n";
+                    uint32_t start_id = 0;
+                    is_dir_exit(file_path, start_id);
+                    if (!is_file_exit(file_name, Inode::read_inode(start_id))) {
+                        std::cout << __ERROR << "文件" << file_name << "不存在" << __NORMAL << std::endl;
+                        shell_output += __ERROR + "文件" + file_name + "不存在" + __NORMAL + "\n";
+                        break;
+                    } else {
+                        // 读文件
+                        if (options["-i"].empty()) {
+                            std::string output = read_file(file_path, file_name);
+                            if (!output.empty()) {
+                                std::cout << output << std::endl;
+                                shell_output += output + "\n";
+                            }
+                        } else { // -i
+                            write_file(file_path, file_name, options["-i"]);
+                            shell_output += __SUCCESS + "文件" + file_name + "写入成功" + __NORMAL + "\n";
                         }
-                    } else { // -i
-                        write_file(file_path, file_name, options["-i"]);
-                        shell_output += __SUCCESS + "文件" + file_name + "写入成功" + __NORMAL + "\n";
                     }
                     break;
                 }
@@ -286,11 +326,6 @@ int main() {
                         break;
                     } else if (is_dir_exit(target_path, start_id) && is_file_exit(target_name, Inode::read_inode(start_id)) && !options["-f"].empty()) {
                         overwrite = true;
-                    }
-                    if (!is_dir_exit(target_path, start_id)) {
-                        make_dir(target_path, root_inode);
-                        is_dir_exit(target_path, start_id); // 找到目录id
-                        make_file(target_name, start_id);
                     }
                     Inode dir_inode = Inode::read_inode(start_id);
                     std::string file_content;
@@ -332,12 +367,17 @@ int main() {
                         // 读取文件系统的resource_path
                         file_content = read_file(__path, __name);
                     }
-                    if (overwrite) {
+                    if (overwrite) { // 文件存在，覆盖
                         clear_file(target_path, target_name);
                         write_file(target_path, target_name, file_content);
                     } else {
+                        if (!is_dir_exit(target_path, start_id)) { // 文件不存在
+                            make_dir(target_path, root_inode);
+                            is_dir_exit(target_path, start_id); // 找到目录id
+                            make_file(target_name, start_id, shell_output);
+                        }
                         if (!is_file_exit(target_name, dir_inode)) {
-                            make_file(target_name, start_id);
+                            make_file(target_name, start_id, shell_output);
                         }
                         write_file(target_path, target_name, file_content);
                     }
@@ -386,26 +426,41 @@ int main() {
                 }
 
             } else if (cmd == "check" || cmd == "CHECK") {
-            } else if (cmd == "DIR" || cmd == "dir") {
+            } else if (cmd == "DIR" || cmd == "dir" || cmd == "ls" || cmd == "LS") {
                 shell_output = show_directory(cur_inode.i_id);
             } else if (cmd == "clear" || cmd == "CLEAR" || cmd == "cls" || cmd == "CLS") {
                 system("cls");
-            } else if (cmd == "help" || cmd == "HELP") {
-                
-            }
-            {
+            } else if (cmd == "adduser" || cmd == "ADDUSER") {
+                while (1) {
+                    if (user.gid != 0) {
+                        shell_output += __ERROR + "您没有权限使用,请联系管理员" + __NORMAL + "\n";
+                        break;
+                    }
+                    if (options["-u"].empty() || options["-p"].empty() || options["-uid"].empty() || options["-gid"].empty()) {
+                        shell_output += __ERROR + "请输入正确的参数" + __NORMAL + "\n";
+                        break;
+                    }
+                    if (adduser(options["-u"], options["-p"], std::stoul(options["-uid"]), std::stoul(options["-gid"]))) {
+                        shell_output += __SUCCESS + "用户" + options["-u"] + "创建成功" + __NORMAL + "\n";
+                    } else {
+                        shell_output += __ERROR + "用户" + options["-u"] + "创建失败" + __NORMAL + "\n";
+                    }
+                    break;
+                }
+            } else {
                 std::cout << __ERROR << "未定义的命令，请重新输入" << __NORMAL << std::endl;
                 shell_output += __ERROR + "未定义的命令，请重新输入" + __NORMAL + "\n";
             }
 
             /*******  命令执行完后的操作  *******/
-            shell_output += __USER + user + "@FileSystem" + __NORMAL + ":" + __PATH + path + __NORMAL + "$ ";
+            shell_output += __USER + user.username + "@FileSystem" + __NORMAL + ":" + __PATH + path + __NORMAL + "$ ";
             strncpy(shm->result, shell_output.c_str(), sizeof(shm->result) - 1);
             shm->done = true;
             shm->ready = false;
         }
         Sleep(10); // 避免无用的循环
     }
+
     // 退出程序前保存超级块
     sb.last_load_time = load_time;
     sb.save_super_block();

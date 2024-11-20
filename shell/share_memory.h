@@ -8,6 +8,8 @@
 #include <cstring>
 #include <iostream>
 #include <windows.h>
+#include <sstream>
+#include <conio.h> 
 
 const std::string welcome1 = 
 "    ____  __  __        _____            __                        \n"
@@ -34,7 +36,7 @@ std::string welcome2 =
 
 // 便于阅读的颜色
 const std::string __ERROR = "\033[31m";
-const std::string __SUCCESS = "\033[33m";
+const std::string __SUCCESS = "\033[36m";
 const std::string __PATH = "\033[01;34m";
 const std::string __NORMAL = "\033[0m";
 const std::string __USER = "\033[01;32m";
@@ -44,4 +46,7 @@ struct SharedMemory {
     char result[4096];
     bool ready;
     bool done;
+    bool is_login_prompt;
+    bool is_login_success;
+    bool is_login_fail;
 };

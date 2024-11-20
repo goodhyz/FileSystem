@@ -3,7 +3,7 @@
 #include <cstring>
 #include <iostream>
 #include <windows.h>
-
+#include <csignal>
 /**
  * 共享内存结构体, 用于进程间通信
  * command: 命令
@@ -16,4 +16,7 @@ struct SharedMemory {
     char result[4096];
     bool ready;
     bool done;
+    bool is_login_prompt;
+    bool is_login_success;
+    bool is_login_fail;
 };
