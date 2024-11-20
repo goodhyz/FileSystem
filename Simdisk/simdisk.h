@@ -80,6 +80,7 @@ std::string hash_pwd(const std::string &pwd);
 bool is_able_to_write(const uint32_t inode_id, const User cur_user);
 bool is_able_to_read(const uint32_t inode_id, const User cur_user);
 bool is_able_to_execute(const uint32_t inode_id, const User cur_user);
+std::string get_username(uint32_t uid);
 
 //------------------------------------------------------------------------------------------------
 // 全局变量
@@ -560,7 +561,7 @@ std::string show_directory(uint32_t inode_id, bool show_recursion) {
     std::string path = get_absolute_path(inode_id);
     result << __SUCCESS << "目录: " << path << __NORMAL << std::endl;
     IndexBlock index_block = IndexBlock::read_index_block(inode.i_indirect);
-    result << std::left << std::setw(18) << "name" << std::setw(10) << "mode" << std::setw(10) << "size" << std::setw(10) << "last change" << std::endl;
+    result << std::left << std::setw(18) << "name" <<std::setw(18)<<"owner"<< std::setw(10) << "mode" << std::setw(10) << "size" << std::setw(10) << "last change" << std::endl;
     // std::cout << std::left << std::setw(10) << "name" << std::setw(10) << "mode" << std::setw(10) << "size" << std::setw(10) << "last change" << std::endl;
     for (uint32_t i = 0; i < 254; ++i) { // 访问索引块
         if (index_block.index[i] == UINT32_MAX) {
@@ -579,7 +580,8 @@ std::string show_directory(uint32_t inode_id, bool show_recursion) {
                 }
                 print_name += "/";
             }
-            result << std::left << std::setw(18) << print_name << std::setw(10) << temp_inode.i_mode << std::setw(10) << temp_inode.i_size << std::setw(10) << format_time(temp_inode.i_mtime) << std::endl;
+
+            result << std::left << std::setw(18) << print_name<<std::setw(18)<<get_username(temp_inode.i_uid) << std::setw(10) << temp_inode.i_mode << std::setw(10) << temp_inode.i_size << std::setw(10) << format_time(temp_inode.i_mtime) << std::endl;
             // std::cout << std::left << std::setw(10) << print_name << std::setw(10) << temp_inode.i_mode << std::setw(10) << temp_inode.i_size << std::setw(10) << format_time(temp_inode.i_mtime) << std::endl;
         }
     }
@@ -1382,6 +1384,30 @@ bool login(const std::string &user, const std::string &password, std::string &_s
     return false;
 }
 
+/**
+ * @brief 获取用户的用户名
+ * @param uid 用户id
+ * @return 用户名
+ */
+std::string get_username(uint32_t uid) {
+    std::string all_info = read_file("/etc/", "passwd");
+    std::istringstream iss(all_info);
+    std::string line;
+    while (std::getline(iss, line)) {
+        std::istringstream line_stream(line);
+        std::string username, hashed_password, uid_str, gid_str;
+        if (std::getline(line_stream, username, ':') &&
+            std::getline(line_stream, hashed_password, ':') &&
+            std::getline(line_stream, uid_str, ':') &&
+            std::getline(line_stream, gid_str, ':')) {
+            uint32_t cur_uid = std::stoul(uid_str);
+            if (cur_uid == uid) {
+                return username;
+            }
+        }
+    }
+    return "";
+}
 /**
  * @brief 加密密码
  */

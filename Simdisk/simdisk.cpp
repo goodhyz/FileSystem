@@ -278,6 +278,9 @@ int main() {
                     shell_output += "  -m <mode>: 设置文件权限，默认为755\n";
                 } else {
                     while (1) {
+                        if(options.find("-m") != options.end()){
+                            mode = std::stoi(options["-m"]);
+                        }
                         // 没有参数
                         if (arg.empty()) {
                             std::cout << __ERROR << "请输入文件名" << __NORMAL << std::endl;
@@ -390,6 +393,7 @@ int main() {
                     }
                 }
             } else if (cmd == "copy" || cmd == "COPY") {
+                uint32_t mode = 755;
                 if (options.find("-h") != options.end()) {
                     shell_output += "copy: 复制文件\n";
                     shell_output += "用法: copy <-host <host_path> | -fs <fs_path>> [-f] <filename> [-m <mode>]\n";
@@ -399,6 +403,7 @@ int main() {
                     shell_output += "  -f: 强制覆盖目标文件\n";
                     shell_output += "  -m <mode>: 设置文件权限，默认为755\n";
                 } else {
+                    
                     while (1) {
                         uint32_t mode = 755;
                         if (options.find("-m") != options.end()) {

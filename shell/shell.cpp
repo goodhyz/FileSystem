@@ -86,6 +86,8 @@ int main() {
         // 读取结果并打印
         std::string command;
         std::getline(std::cin, command);
+        if (command == "exit")
+            break;
         if (command == "help") {
             std::cout << "命令列表:" << std::endl;
             std::cout << "    help: 显示帮助信息" << std::endl;
@@ -128,9 +130,8 @@ int main() {
         shm->cur_dir_inode_id = cur_dir_inode_id;
         shm->ready = true;
 
-        if (command == "exit")
-            break;
-        else if (command == "clear")
+
+        if (command == "clear")
             system("cls");
 
         // 重置状态
