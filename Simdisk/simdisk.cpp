@@ -156,7 +156,11 @@ int main() {
                     shell_output += "选项:\n";
                     shell_output += "  -m <mode>: 设置目录权限，默认为755\n";
                 } else {
+                    uint32_t mode = 755;
                     while (1) {
+                        if(options.find("-m") != options.end()){
+                            mode = std::stoi(options["-m"]);
+                        }
                         // no args ,raise error
                         if (arg.empty()) {
                             std::cout << __ERROR << "请输入目录名" << __NORMAL << std::endl;
