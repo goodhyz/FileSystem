@@ -218,7 +218,7 @@ int main() {
                                         std::cout << __ERROR << "你没有权限创建" << arg << __NORMAL << std::endl;
                                         shell_output += __ERROR + "你没有权限创建" + arg + __NORMAL + "\n";
                                     } else {
-                                        if (make_dir(arg, root_inode, user, mode)) {
+                                        if (make_dir(arg, root_inode, user, shell_output,mode)) {
                                             std::cout << __SUCCESS << "目录" << arg << "创建成功" << __NORMAL << std::endl;
                                             shell_output += __SUCCESS + "目录" + arg + "创建成功" + __NORMAL + "\n";
                                         }
@@ -236,7 +236,7 @@ int main() {
                                         std::cout << __ERROR << "你没有权限创建" << arg << __NORMAL << std::endl;
                                         shell_output += __ERROR + "你没有权限创建" + arg + __NORMAL + "\n";
                                     } else {
-                                        if (make_dir(arg, cur_inode, user, mode)) {
+                                        if (make_dir(arg, cur_inode, user,shell_output, mode)) {
                                             std::cout << __SUCCESS << "目录" << arg << "创建成功" << __NORMAL << std::endl;
                                             shell_output += __SUCCESS + "目录" + arg + "创建成功" + __NORMAL + "\n";
                                         }
@@ -354,7 +354,13 @@ int main() {
                                 } else {
                                     shm->open_file_table.add_file(file_id, true);
                                 }
-                                make_file(file_name, start_id, shell_output, user, mode);
+                                if(!make_file(file_name, start_id,  user,shell_output, mode))
+                                {
+                                    std::cout << __ERROR << "文件" << file_name << "创建失败" << __NORMAL << std::endl;
+                                    shell_output += __ERROR + "文件" + file_name + "创建失败" + __NORMAL + "\n";
+                                    shm->open_file_table.close_file(file_id);
+                                    break;
+                                }   
                                 shm->open_file_table.close_file(file_id);
                             } else { // 目录不存在
                                 if (!is_able_to_write(start_id, user)) {
@@ -362,7 +368,7 @@ int main() {
                                     shell_output += __ERROR + "你没有权限创建" + arg + __NORMAL + "\n";
                                     break;
                                 }
-                                if (make_dir(file_path, root_inode, user, mode)) {
+                                if (make_dir(file_path, root_inode, user,shell_output, mode)) {
                                     is_dir_exit(file_path, start_id); // 找到目录
                                     Inode __dir_inode = Inode::read_inode(start_id);
                                     uint32_t file_id = get_file_inode_id(file_name, __dir_inode);
@@ -373,7 +379,13 @@ int main() {
                                     } else {
                                         shm->open_file_table.add_file(file_id, true);
                                     }
-                                    make_file(file_name, start_id, shell_output, user, mode);
+
+                                    if(!make_file(file_name, start_id, user,shell_output, mode)){
+                                        std::cout << __ERROR << "文件" << file_name << "创建失败" << __NORMAL << std::endl;
+                                        shell_output += __ERROR + "文件" + file_name + "创建失败" + __NORMAL + "\n";
+                                        shm->open_file_table.close_file(file_id);
+                                        break;
+                                    }
                                     shm->open_file_table.close_file(file_id);
                                 }
                             }
@@ -580,11 +592,11 @@ int main() {
                                     break;
                                 }
                                 if (!is_dir_exit(target_path, start_id)) { // 目录不存在
-                                    make_dir(target_path, root_inode, user, mode);
+                                    make_dir(target_path, root_inode, user, shell_output,mode);
                                     is_dir_exit(target_path, start_id); // 找到目录id
-                                    make_file(target_name, start_id, shell_output, user, mode);
+                                    make_file(target_name, start_id,  user, shell_output,mode);
                                 } else if (!is_file_exit(target_name, dir_inode)) {
-                                    make_file(target_name, start_id, shell_output, user, mode);
+                                    make_file(target_name, start_id,  user, shell_output,mode);
                                 }
                                 write_file(target_path, target_name, file_content);
                             }
@@ -722,7 +734,7 @@ int main() {
                 shm->user_list[i].done = true;
                 shm->user_list[i].ready = false;
             }
-            Sleep(100); // 减少cpu占用
+            Sleep(10); // 减少cpu占用
         }
     }
 

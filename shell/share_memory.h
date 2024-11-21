@@ -8,6 +8,15 @@
 #pragma once
 #include "shell.h"
 
+/**** 声明  *****/
+
+struct UserShareMemory;
+struct OpenedFileTable;
+struct OpenedFile;
+struct SharedMemory;
+
+/**** 定义  *****/
+
 // 每个用户的信息
 struct UserShareMemory {
     /*存储当前用户的信息 */

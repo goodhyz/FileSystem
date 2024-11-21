@@ -89,6 +89,7 @@ struct DirBlock;
 struct IndexBlock;
 struct InodeBitmap;
 struct BlockBitmap;
+struct User;
 
 //------------------------------------------------------------------------------------------------
 // 类定义

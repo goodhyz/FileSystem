@@ -70,8 +70,8 @@ bool write_file(std::string file_path, std::string file_name, std::string conten
 bool is_dir_empty(const uint32_t dir_inode_id);
 void init_disk();
 std::string show_directory(uint32_t inode_id, User cur_user, bool show_recursion = false);
-bool make_dir(const std::string dir_name, Inode cur_inode, User cur_user, uint32_t mode = 755);
-bool make_file(const std::string file_name, uint32_t inode_id, std::string &_shell_output, User cur_user, uint32_t mode = 755);
+bool make_dir(const std::string dir_name, Inode cur_inode, User cur_user,std::string &_shell_output, uint32_t mode = 755);
+bool make_file(const std::string file_name, uint32_t inode_id, User cur_user,std::string &_shell_output, uint32_t mode = 755);
 bool del_file(const std::string file_name, Inode &cur_inode, std::string &shell_output);
 bool del_dir(const uint32_t the_purpose_dir_inode_id, std::string &shell_output);
 bool login(const std::string &user, const std::string &password, std::string &_shell_output, User &__user);
@@ -559,7 +559,7 @@ std::string show_directory(uint32_t inode_id,User cur_user, bool show_recursion)
         return "";
     }
     std::string path = get_absolute_path(inode_id);
-    result << __PATH << "目录: " << path << __NORMAL << std::endl<<std::endl;
+    result << __SUCCESS << "目录: " << path << __NORMAL << std::endl<<std::endl;
     IndexBlock index_block = IndexBlock::read_index_block(inode.i_indirect);
     result << std::left << std::setw(18) << "name" <<std::setw(18)<<"owner"<< std::setw(10) << "mode" << std::setw(10) << "size" << std::setw(10) << "last change" << std::endl;
     // std::cout << std::left << std::setw(10) << "name" << std::setw(10) << "mode" << std::setw(10) << "size" << std::setw(10) << "last change" << std::endl;
@@ -1082,15 +1082,19 @@ bool clear_file(std::string file_path, std::string file_name) {
  * 输入一定是需要创建的目录（即当前不存在的目录）
  * @param dir_name 目录名
  * @param cur_inode 当前目录的inode
+ * @param cur_user 当前用户
+ * @param mode 权限
+ * @param _shell_output 输出信息
  * @return 是否创建成功
  */
-bool make_dir(const std::string dir_name, Inode cur_inode, User cur_user, uint32_t mode) {
+bool make_dir(const std::string dir_name, Inode cur_inode, User cur_user,std::string &_shell_output, uint32_t mode) {
     std::vector<std::string> path_list;
     std::string temp;
     for (auto c : dir_name) {
         if (c == '/' && !temp.empty()) {
             path_list.push_back(temp);
             if (!is_valid_dir_name(temp)) {
+                _shell_output += __ERROR + "目录名" + temp + "不合法" + __NORMAL + "\n";
                 std::cout << __ERROR << "目录名" << temp << "不合法" << __NORMAL << std::endl;
                 return false;
             }
@@ -1120,8 +1124,13 @@ bool make_dir(const std::string dir_name, Inode cur_inode, User cur_user, uint32
  * @param inode_id 当前目录的inode
  * @return 是否创建成功
  */
-bool make_file(const std::string file_name, uint32_t inode_id, std::string &_shell_output, User cur_user, uint32_t mode) {
+bool make_file(const std::string file_name, uint32_t inode_id, User cur_user,  std::string &_shell_output,uint32_t mode) {
     Inode parent_inode = Inode::read_inode(inode_id);
+    if(file_name.size()>28){
+        std::cout << __ERROR << "文件名过长" << __NORMAL << std::endl;
+        _shell_output += __ERROR + "文件名过长\n" + __NORMAL;
+        return false;
+    }
     if (!is_file_exit(file_name, parent_inode)) {
         IndexBlock cur_ib = IndexBlock::read_index_block(parent_inode.i_indirect);
         Inode new_inode = {
@@ -1439,12 +1448,13 @@ bool adduser(const std::string &user, const std::string &password, uint32_t uid,
     std::string shell_output;
     Inode root_inode = Inode::read_inode(0);
     User cur_user("root", 0, 0);
+    std::string useless;
     if (is_dir_exit(file_path, start_id)) { // 目录存在
-        make_file(file_name, start_id, shell_output, cur_user,710);
+        make_file(file_name, start_id, cur_user,useless,710);
     } else { // 目录不存在
-        if (make_dir(file_path, root_inode, cur_user)) {
+        if (make_dir(file_path, root_inode, cur_user, useless)) {
             is_dir_exit(file_path, start_id); // 找到目录
-            make_file(file_name, start_id, shell_output, cur_user,710);
+            make_file(file_name, start_id, cur_user,useless,710);
         }
     }
     std::string content = user + ":" + pwd + ":" + std::to_string(uid) + ":" + std::to_string(gid) + "\n";
@@ -1452,12 +1462,12 @@ bool adduser(const std::string &user, const std::string &password, uint32_t uid,
         std::string home_path = "/home/" + user + "/";
         User new_user(user, uid, gid);
         if (!is_dir_exit(home_path, start_id)) {
-            make_dir(home_path, root_inode, new_user, 755);
+            make_dir(home_path, root_inode, new_user, useless, 755);
         }
     }else{
         std::string home_path = "/root/";
         if (!is_dir_exit(home_path, start_id)) {
-            make_dir(home_path, root_inode, cur_user, 755);
+            make_dir(home_path, root_inode, cur_user, useless, 755);
         }
     }
     return write_file(file_path, file_name, content);

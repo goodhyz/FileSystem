@@ -5,7 +5,8 @@
  * @date 2024-11-20
  */
 
-#include "shell.h"
+// #include "shell.h"  
+//已经在share_memory.h中包含了shell.h 
 #include "share_memory.h"
 
 void print_help(SharedMemory *shm, int cur_user);
@@ -62,7 +63,7 @@ int main() {
         // 登录锁
         if (shm->user_list[cur_label].is_login_prompt) {
             while (1) {
-                Sleep(100);
+                Sleep(10);
                 if (shm->user_list[cur_label].is_login_success || shm->user_list[cur_label].is_login_fail) {
                     break;
                 }
@@ -80,7 +81,7 @@ int main() {
                 std::cout << shm->user_list[cur_label].result;
                 break;
             }
-            Sleep(100);
+            Sleep(10);
         }
         if (shm->user_list[cur_label].is_login_success) {
             // 登录成功
@@ -174,7 +175,7 @@ int main() {
 
         // 重置状态
         while (1) {
-            Sleep(100);
+            Sleep(10);
             if (shm->user_list[cur_label].done) {
                 break;
             }
