@@ -1,6 +1,8 @@
 /**
  * @file encrypt.h
- * 实现SHA256加密
+ * @brief 实现SHA256加密
+ * @author Hu Yuzhi
+ * @date 2024-11-20
  */
 
 #pragma once

@@ -1,4 +1,11 @@
+/**
+ * @file simdisk.cpp
+ * @brief 文件系统服务端程序
+ * @author Hu Yuzhi
+ * @date 2024-11-20
+ */
 #include "simdisk.h"
+
 #include "share_memory.h"
 
 // 全局变量
@@ -26,12 +33,18 @@ int main() {
     // shm->user_list = new User[10];
     for (int i = 0; i < 10; ++i) {
         // shm->user_list[i].user = User();
-        shm->user_list->done = false;  // simdisk是否完成操作
-        shm->user_list->ready = false; // shell是否输入完毕
 
-        shm->user_list->is_login_prompt = false;
-        shm->user_list->is_login_success = false;
-        shm->user_list->is_login_fail = false;
+        shm->user_list[i].done = false;  // simdisk是否完成操作
+        shm->user_list[i].ready = false; // shell是否输入完毕
+
+        shm->user_list[i].is_login_prompt = false;
+        shm->user_list[i].is_login_success = false;
+        shm->user_list[i].is_login_fail = false;
+
+        shm->user_list[i].cur_dir_inode_id = 0;
+        shm->user_list[i].cur_user = -1;
+        shm->open_file_table.opened_file[i].inode_id = -1;
+        shm->open_file_table.opened_file[i].is_write = false;
     }
 
     std::string shell_output = "";
@@ -43,14 +56,14 @@ int main() {
     while (1) {
 
         // 确定是否有shell需要登录
-        std::string user_index;
+        std::string user_label;
         for (int i = 0; i < 10; ++i) {
             if (shm->user_list[i].is_login_prompt) {
                 // 读取账号密码
                 std::istringstream iss(shm->user_list[i].command);
                 std::string username, password;
-                iss >> username >> password >> user_index;
-                User user = shm->user_list[std::stoi(user_index)].user;
+                iss >> username >> password >> user_label;
+                User user = shm->user_list[std::stoi(user_label)].user;
                 // 判断账号密码正确性
                 if (login(username, password, shell_output, user)) { // 正确
                     shm->user_list[i].is_login_success = true;
@@ -61,7 +74,7 @@ int main() {
                 }
                 strncpy(shm->user_list[i].result, shell_output.c_str(), sizeof(shm->user_list[i].result) - 1);
                 if (shm->user_list[i].is_login_success) {
-                    shm->user_list[std::stoi(user_index)].user = user;
+                    shm->user_list[std::stoi(user_label)].user = user;
                     // shell_output = "上次登录时间: " + format_time(sb.last_load_time) + "\n";
                     shell_output = __USER + user.username + "@FileSystem" + __NORMAL + ":" + __PATH + '/' + __NORMAL + "$ ";
                     strncpy(shm->user_list[i].result, shell_output.c_str(), sizeof(shm->user_list[i].result) - 1);
@@ -73,7 +86,7 @@ int main() {
         for (int i = 0; i < 10; ++i) {
             if (shm->user_list[i].ready) {
                 // 确定指令的发起用户及其所在目录
-                User user = shm->user_list->user;
+                User user = shm->user_list[i].user;
                 Inode cur_inode = Inode::read_inode(shm->user_list[i].cur_dir_inode_id);
                 std::string path = get_absolute_path(cur_inode.i_id);
                 // 读取shell输入
@@ -341,7 +354,7 @@ int main() {
                                     shell_output += __ERROR + "文件" + file_name + "正在被写入" + __NORMAL + "\n";
                                     break;
                                 } else {
-                                    shm->open_file_table.add_file(file_id,true);
+                                    shm->open_file_table.add_file(file_id, true);
                                 }
                                 make_file(file_name, start_id, shell_output, user, mode);
                                 shm->open_file_table.close_file(file_id);
@@ -360,13 +373,13 @@ int main() {
                                         shell_output += __ERROR + "文件" + file_name + "正在被写入" + __NORMAL + "\n";
                                         break;
                                     } else {
-                                        shm->open_file_table.add_file(file_id,true);
+                                        shm->open_file_table.add_file(file_id, true);
                                     }
                                     make_file(file_name, start_id, shell_output, user, mode);
                                     shm->open_file_table.close_file(file_id);
                                 }
                             }
-                            Sleep(1000);
+                            Sleep(10000);
                             shell_output += __SUCCESS + "文件" + file_name + "创建成功" + __NORMAL + "\n";
                             break;
                         }
@@ -419,18 +432,20 @@ int main() {
                                         shell_output += output + "\n";
                                     }
                                 } else { // -i
-                                int file_id = get_file_inode_id(file_name, cur_inode);
+                                    int file_id = get_file_inode_id(file_name, cur_inode);
                                     if (!is_able_to_write(file_id, user)) {
                                         std::cout << __ERROR << "你没有权限写入" << file_name << __NORMAL << std::endl;
                                         shell_output += __ERROR + "你没有权限写入" + file_name + __NORMAL + "\n";
                                         break;
                                     }
-                                    if(shm->open_file_table.is_writing(file_id)){
+                                    if (shm->open_file_table.is_writing(file_id)) {
                                         std::cout << __ERROR << "文件" << file_name << "正在被写入" << __NORMAL << std::endl;
                                         shell_output += __ERROR + "文件" + file_name + "正在被写入" + __NORMAL + "\n";
                                         break;
-                                    }else{
-                                        shm->open_file_table.add_file(file_id,true);
+                                    } else {
+                                        shm->open_file_table.add_file(file_id, true);
+                                        
+                                        std::cout<<"writing"<<file_name<<std::endl;
                                     }
                                     write_file(file_path, file_name, options["-i"]);
                                     Sleep(10000);
@@ -548,8 +563,18 @@ int main() {
                                     shell_output += __ERROR + "你没有权限写入" + target_name + __NORMAL + "\n";
                                     break;
                                 }
+                                Inode file_inode = Inode::read_inode(start_id);
+                                uint32_t file_id = get_file_inode_id(target_name, file_inode);
+                                if (shm->open_file_table.is_writing(file_id)) {
+                                    std::cout << __ERROR << "文件" << target_name << "正在被写入" << __NORMAL << std::endl;
+                                    shell_output += __ERROR + "文件" + target_name + "正在被写入" + __NORMAL + "\n";
+                                    break;
+                                } else {
+                                    shm->open_file_table.add_file(file_id, true);
+                                }
                                 clear_file(target_path, target_name);
                                 write_file(target_path, target_name, file_content);
+                                shm->open_file_table.close_file(file_id);
                             } else { // 文件不存在
                                 if (!is_able_to_write(start_id, user)) {
                                     std::cout << __ERROR << "你没有权限写入" << target_name << __NORMAL << std::endl;
@@ -600,6 +625,14 @@ int main() {
                             }
                             if (is_dir_exit(file_path, start_id)) { // 目录存在
                                 Inode dir_inode = Inode::read_inode(start_id);
+                                uint32_t file_id = get_file_inode_id(file_name, dir_inode);
+                                if (shm->open_file_table.is_writing(file_id)) {
+                                    std::cout << __ERROR << "文件" << file_name << "正在被写入" << __NORMAL << std::endl;
+                                    shell_output += __ERROR + "文件" + file_name + "正在被写入" + __NORMAL + "\n";
+                                    break;
+                                } else {
+                                    shm->open_file_table.add_file(file_id, true);
+                                }
                                 if (is_file_exit(file_name, dir_inode)) {
                                     if (!is_able_to_write(get_file_inode_id(file_name, dir_inode), user)) {
                                         std::cout << __ERROR << "你没有权限删除" << file_name << __NORMAL << std::endl;
@@ -607,6 +640,7 @@ int main() {
                                     } else if (del_file(file_name, dir_inode, shell_output)) {
                                         std::cout << __SUCCESS << "文件" << file_name << "删除成功" << __NORMAL << std::endl;
                                         shell_output += __SUCCESS + "文件" + file_name + "删除成功" + __NORMAL + "\n";
+                                        shm->open_file_table.close_file(file_id);
                                     } else {
                                         std::cout << __ERROR << "文件" << file_name << "删除失败" << __NORMAL << std::endl;
                                         shell_output += __ERROR + "文件" + file_name + "删除失败" + __NORMAL + "\n";
@@ -623,6 +657,15 @@ int main() {
                         shell_output += "check: 检查文件系统\n";
                         shell_output += "用法: check\n";
                     } else {
+                        uint32_t used_block = block_bitmap.bitmap.count();
+                        uint32_t used_inode = inode_bitmap.bitmap.count();
+                        if (used_block == sb.block_count - sb.free_blocks && used_inode == sb.inode_count - sb.free_inodes) {
+                            std::cout << __SUCCESS << "文件系统完好" << __NORMAL << std::endl;
+                            shell_output += __SUCCESS + "文件系统完好" + __NORMAL + "\n";
+                        } else {
+                            std::cout << __ERROR << "文件系统损坏" << __NORMAL << std::endl;
+                            shell_output += __ERROR + "文件系统损坏" + __NORMAL + "\n";
+                        }
                     }
                 } else if (cmd == "DIR" || cmd == "dir" || cmd == "ls" || cmd == "LS") {
                     if (options.find("-h") != options.end()) {

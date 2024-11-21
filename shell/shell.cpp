@@ -1,5 +1,14 @@
-#include "share_memory.h"
+/**
+ * @file shell.cpp
+ * @brief 用于用户交互的shell
+ * @author Hu Yuzhi
+ * @date 2024-11-20
+ */
+
 #include "shell.h"
+#include "share_memory.h"
+
+void print_help(SharedMemory *shm, int cur_user);
 
 int main() {
     // 打开内存映射文件
@@ -17,15 +26,16 @@ int main() {
         return 1;
     }
     // 记录当前是哪个用户
-    int cur_user, cur_dir_inode_id = 0;
-    // 获取一个空闲用户
-    cur_user = shm->get_free_user();
-    if (cur_user == -1) {
+    int cur_label, cur_dir_inode_id = 0;
+    // 获取一个空闲用户, 访问用户列表
+    cur_label = shm->get_free_user();
+    if (cur_label == -1) {
         std::cerr << __ERROR << "用户数量已达上限" << __NORMAL << std::endl;
         return 1;
     }
+    shm->user_list[cur_label].cur_user = cur_label;
     while (true) {
-        shm->user_list[cur_user].is_login_fail = shm->user_list[cur_user].is_login_success = false;
+        shm->user_list[cur_label].is_login_fail = shm->user_list[cur_label].is_login_success = false;
         // 输入账号密码
         std::cout << "账号：";
         std::string user;
@@ -50,29 +60,29 @@ int main() {
         std::cout << std::endl; // 换行
 
         // 登录锁
-        if(shm->user_list[cur_user].is_login_prompt){
-            while(1){
+        if (shm->user_list[cur_label].is_login_prompt) {
+            while (1) {
                 Sleep(100);
-                if(shm->user_list[cur_user].is_login_success || shm->user_list[cur_user].is_login_fail){
+                if (shm->user_list[cur_label].is_login_success || shm->user_list[cur_label].is_login_fail) {
                     break;
                 }
             }
         }
-        std::string login_info = user + " " + password + " " + std::to_string(cur_user);
-        strncpy(shm->user_list[cur_user].command, login_info.c_str(), sizeof(shm->user_list[cur_user].command) - 1);
-        shm->user_list[cur_user].cur_user = cur_user;
-        shm->user_list[cur_user].is_login_prompt = true;
+        std::string login_info = user + " " + password + " " + std::to_string(cur_label);
+        strncpy(shm->user_list[cur_label].command, login_info.c_str(), sizeof(shm->user_list[cur_label].command) - 1);
+        shm->user_list[cur_label].cur_user = cur_label;
+        shm->user_list[cur_label].is_login_prompt = true;
 
         while (true) {
-            if (shm->user_list[cur_user].is_login_success) {
+            if (shm->user_list[cur_label].is_login_success) {
                 break;
-            } else if (shm->user_list[cur_user].is_login_fail) {
-                std::cout << shm->user_list[cur_user].result;
+            } else if (shm->user_list[cur_label].is_login_fail) {
+                std::cout << shm->user_list[cur_label].result;
                 break;
             }
             Sleep(10);
         }
-        if (shm->user_list[cur_user].is_login_success) {
+        if (shm->user_list[cur_label].is_login_success) {
             // 登录成功
             break;
         }
@@ -80,63 +90,98 @@ int main() {
 
     // 程序的进入页面
     std::cout << welcome1 << std::endl;
-    std::cout << "I am user " << cur_user << std::endl;
+    std::cout << "User Label " << cur_label << std::endl;
     std::cout << "键入 'help' 获得帮助" << std::endl;
     std::cout << "键入 'exit' 停止程序" << std::endl;
-    std::cout << shm->user_list[cur_user].result;
+    std::cout << shm->user_list[cur_label].result;
     while (true) {
         // 读取结果并打印
         std::string command;
         std::getline(std::cin, command);
         if (command == "exit")
+
             break;
         if (command == "help") {
-            std::cout << "命令列表:" << std::endl;
-            std::cout << "    help: 显示帮助信息" << std::endl;
-            std::cout << "    exit: 退出程序" << std::endl;
-            std::cout << "    info: 显示系统信息" << std::endl;
-            std::cout << "    cd: 切换目录" << std::endl;
-            std::cout << "    md: 创建目录" << std::endl;
-            std::cout << "    rd: 删除目录" << std::endl;
-            std::cout << "    newfile: 创建新文件" << std::endl;
-            std::cout << "    cat: 显示文件内容或向文件追加内容" << std::endl;
-            std::cout << "    copy: 复制文件" << std::endl;
-            std::cout << "    del: 删除文件" << std::endl;
-            std::cout << "    check: 检查文件或目录" << std::endl;
-            std::cout << "    dir | ls: 显示目录内容" << std::endl;
-            std::cout << "    clear | cls: 清空屏幕" << std::endl;
-            std::cout << "    adduser: 添加用户" << std::endl;
-            std::cout << "<command> -h 查看具体使用情况" << std::endl;
-            // 输出shm->result的最后一行
-            std::string result = shm->user_list[cur_user].result;
-            size_t last_newline = result.find_last_of('\n');
-            if (last_newline != std::string::npos) {
-                std::cout << result.substr(last_newline + 1);
-            } else {
-                std::cout << result;
-            }
+            print_help((SharedMemory *)shm, cur_label);
             continue;
         }
-        // 写入命令并通知后台
-        strncpy(shm->user_list[cur_user].command, command.c_str(), sizeof(shm->user_list[cur_user].command) - 1);
-        shm->user_list[cur_user].cur_user = cur_user;
-        shm->user_list[cur_user].cur_dir_inode_id = cur_dir_inode_id;
-        shm->user_list[cur_user].ready = true;
 
+        /***** 判断是否互斥   ********/
+        std::string input, cmd, tmp_arg;
+        std::vector<std::string> args;
+        std::istringstream iss(command);
+        iss >> cmd;
+        while (iss >> tmp_arg) {
+            args.push_back(tmp_arg);
+        }
+        // 解析参数
+        std::map<std::string, std::string> options;
+        std::string arg;
+        for (size_t i = 0; i < args.size(); ++i) {
+            if (args[i].front() == '-') {
+                // 检查是否有参数
+                if (i + 1 < args.size() && args[i + 1].front() != '-') {
+                    options[args[i]] = args[i + 1];
+                    ++i; // 跳过参数
+                } else {
+                    options[args[i]] = "true";
+                }
+            } else {
+                // 将最后一个非选项参数赋值给 arg
+                arg = args[i];
+            }
+        }
+        if (arg.empty() && !args.empty()) {
+            arg = args.back();
+        }
+        // 确保arg是文件名
+        if (arg.find("-") == std::string::npos) {
+            // 将args分为文件名和路径
+            size_t pos = arg.find_last_of('/');
+            std::string file_path, file_name;
+            if (pos != std::string::npos) {
+                file_path = arg.substr(0, pos + 1);
+                file_name = arg.substr(pos + 1);
+            } else {
+                file_path = "";
+                file_name = arg;
+            }
+            if (arg.front() != '/') {
+                file_path = get_absolute_path(shm->user_list[cur_label].cur_dir_inode_id) + file_path;
+            }
+
+            // 得到文件inode号，判断是否发生互斥
+            uint32_t start_id = 0;
+            if (is_dir_exit(file_path, start_id)) { // 目录存在
+                Inode __dir_inode = Inode::read_inode(start_id);
+                uint32_t file_id = get_file_inode_id(file_name, __dir_inode);
+                if (cmd == "cat" && !options["-i"].empty() || cmd == "copy" || cmd == "del" || cmd == "newfile") {
+                    if (shm->open_file_table.is_writing(file_id)) {
+                        std::cout << __ERROR << "文件" << file_name << "正在被写入" << __NORMAL << std::endl;
+                        std::cout << shm->user_list[cur_label].result;
+                        continue;
+                    }else{
+                        std::cout<<"dont worry"<<std::endl;
+                    }
+                }
+            }
+        }
+        strncpy(shm->user_list[cur_label].command, command.c_str(), sizeof(shm->user_list[cur_label].command) - 1);
+        shm->user_list[cur_label].cur_user = cur_label;
+        shm->user_list[cur_label].ready = true;
 
         if (command == "clear")
             system("cls");
 
         // 重置状态
-        while(1){
+        while (1) {
             Sleep(10);
-            if(shm->user_list[cur_user].done){
+            if (shm->user_list[cur_label].done) {
                 break;
             }
         }
-        std::cout << shm->user_list[cur_user].result;
-        cur_dir_inode_id = shm->user_list[cur_user].cur_dir_inode_id;
-        shm->user_list[cur_user].done = false;
+        std::cout << shm->user_list[cur_label].result;
+        shm->user_list[cur_label].done = false;
     }
 
     // 清理资源
@@ -144,4 +189,31 @@ int main() {
     CloseHandle(hMapFile);
 
     return 0;
+}
+
+void print_help(SharedMemory *shm, int cur_user) {
+    std::cout << "命令列表:" << std::endl;
+    std::cout << "    help: 显示帮助信息" << std::endl;
+    std::cout << "    exit: 退出程序" << std::endl;
+    std::cout << "    info: 显示系统信息" << std::endl;
+    std::cout << "    cd: 切换目录" << std::endl;
+    std::cout << "    md: 创建目录" << std::endl;
+    std::cout << "    rd: 删除目录" << std::endl;
+    std::cout << "    newfile: 创建新文件" << std::endl;
+    std::cout << "    cat: 显示文件内容或向文件追加内容" << std::endl;
+    std::cout << "    copy: 复制文件" << std::endl;
+    std::cout << "    del: 删除文件" << std::endl;
+    std::cout << "    check: 检查文件或目录" << std::endl;
+    std::cout << "    dir | ls: 显示目录内容" << std::endl;
+    std::cout << "    clear | cls: 清空屏幕" << std::endl;
+    std::cout << "    adduser: 添加用户" << std::endl;
+    std::cout << "<command> -h 查看具体使用情况" << std::endl;
+    // 输出shm->result的最后一行
+    std::string result = shm->user_list[cur_user].result;
+    size_t last_newline = result.find_last_of('\n');
+    if (last_newline != std::string::npos) {
+        std::cout << result.substr(last_newline + 1);
+    } else {
+        std::cout << result;
+    }
 }
