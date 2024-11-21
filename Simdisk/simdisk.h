@@ -69,7 +69,7 @@ std::string read_file(std::string file_path, std::string file_name);
 bool write_file(std::string file_path, std::string file_name, std::string content);
 bool is_dir_empty(const uint32_t dir_inode_id);
 void init_disk();
-std::string show_directory(uint32_t inode_id, bool show_recursion = false);
+std::string show_directory(uint32_t inode_id, User cur_user, bool show_recursion = false);
 bool make_dir(const std::string dir_name, Inode cur_inode, User cur_user, uint32_t mode = 755);
 bool make_file(const std::string file_name, uint32_t inode_id, std::string &_shell_output, User cur_user, uint32_t mode = 755);
 bool del_file(const std::string file_name, Inode &cur_inode, std::string &shell_output);
@@ -551,7 +551,7 @@ void init_disk() {
  * @param inode_id 目录的inode_id
  * @return 目录的内容
  */
-std::string show_directory(uint32_t inode_id, bool show_recursion) {
+std::string show_directory(uint32_t inode_id,User cur_user, bool show_recursion) {
     std::vector<uint32_t> sons;
     std::ostringstream result;
     Inode inode = Inode::read_inode(inode_id);
@@ -559,7 +559,7 @@ std::string show_directory(uint32_t inode_id, bool show_recursion) {
         return "";
     }
     std::string path = get_absolute_path(inode_id);
-    result << __SUCCESS << "目录: " << path << __NORMAL << std::endl;
+    result << __PATH << "目录: " << path << __NORMAL << std::endl<<std::endl;
     IndexBlock index_block = IndexBlock::read_index_block(inode.i_indirect);
     result << std::left << std::setw(18) << "name" <<std::setw(18)<<"owner"<< std::setw(10) << "mode" << std::setw(10) << "size" << std::setw(10) << "last change" << std::endl;
     // std::cout << std::left << std::setw(10) << "name" << std::setw(10) << "mode" << std::setw(10) << "size" << std::setw(10) << "last change" << std::endl;
@@ -574,21 +574,29 @@ std::string show_directory(uint32_t inode_id, bool show_recursion) {
             }
             Inode temp_inode = Inode::read_inode(dir_block.entries[j].inode_id);
             std::string print_name = std::string(dir_block.entries[j].name);
+            std::string path_color = __NORMAL;
             if (dir_block.entries[j].type == DIR_TYPE) {
                 if (std::string(dir_block.entries[j].name) != "." && std::string(dir_block.entries[j].name) != "..") {
                     sons.push_back(dir_block.entries[j].inode_id);
                 }
+                path_color = __PATH;
                 print_name += "/";
             }
-
-            result << std::left << std::setw(18) << print_name<<std::setw(18)<<get_username(temp_inode.i_uid) << std::setw(10) << temp_inode.i_mode << std::setw(10) << temp_inode.i_size << std::setw(10) << format_time(temp_inode.i_mtime) << std::endl;
+            std::string user_name =get_username(temp_inode.i_uid);
+            std::string name_color = __NORMAL;
+            if (user_name == cur_user.username) {
+                name_color = __USER;
+            }
+            result<<path_color<< std::left << std::setw(18) << print_name<<__NORMAL 
+            <<name_color<<std::setw(18)<<user_name <<__NORMAL
+            << std::setw(10) << temp_inode.i_mode << std::setw(10) << temp_inode.i_size << std::setw(10) << format_time(temp_inode.i_mtime) << std::endl;
             // std::cout << std::left << std::setw(10) << print_name << std::setw(10) << temp_inode.i_mode << std::setw(10) << temp_inode.i_size << std::setw(10) << format_time(temp_inode.i_mtime) << std::endl;
         }
     }
     std::string resultstr = result.str()+ "\n";
     if (show_recursion) {
         for (auto son_inode_id : sons) {
-            resultstr += show_directory(son_inode_id, show_recursion);
+            resultstr += show_directory(son_inode_id, cur_user,show_recursion);
         }
     }
     return resultstr;
@@ -1440,6 +1448,18 @@ bool adduser(const std::string &user, const std::string &password, uint32_t uid,
         }
     }
     std::string content = user + ":" + pwd + ":" + std::to_string(uid) + ":" + std::to_string(gid) + "\n";
+    if (user != "root") {
+        std::string home_path = "/home/" + user + "/";
+        User new_user(user, uid, gid);
+        if (!is_dir_exit(home_path, start_id)) {
+            make_dir(home_path, root_inode, new_user, 755);
+        }
+    }else{
+        std::string home_path = "/root/";
+        if (!is_dir_exit(home_path, start_id)) {
+            make_dir(home_path, root_inode, cur_user, 755);
+        }
+    }
     return write_file(file_path, file_name, content);
 }
 

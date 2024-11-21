@@ -18,9 +18,14 @@ int main() {
     }
     // 记录当前是哪个用户
     int cur_user, cur_dir_inode_id = 0;
-
+    // 获取一个空闲用户
+    cur_user = shm->get_free_user();
+    if (cur_user == -1) {
+        std::cerr << __ERROR << "用户数量已达上限" << __NORMAL << std::endl;
+        return 1;
+    }
     while (true) {
-        shm->is_login_fail = shm->is_login_success = false;
+        shm->user_list[cur_user].is_login_fail = shm->user_list[cur_user].is_login_success = false;
         // 输入账号密码
         std::cout << "账号：";
         std::string user;
@@ -43,35 +48,31 @@ int main() {
         }
         std::cin.get();         // 处理回车
         std::cout << std::endl; // 换行
-        cur_user = shm->get_free_user();
-        if (cur_user == -1) {
-            std::cerr << __ERROR << "用户数量已达上限" << __NORMAL << std::endl;
-            return 1;
-        }
+
         // 登录锁
-        if(shm->is_login_prompt){
+        if(shm->user_list[cur_user].is_login_prompt){
             while(1){
                 Sleep(100);
-                if(shm->is_login_success || shm->is_login_fail){
+                if(shm->user_list[cur_user].is_login_success || shm->user_list[cur_user].is_login_fail){
                     break;
                 }
             }
         }
         std::string login_info = user + " " + password + " " + std::to_string(cur_user);
-        strncpy(shm->command, login_info.c_str(), sizeof(shm->command) - 1);
-        shm->cur_user = cur_user;
-        shm->is_login_prompt = true;
+        strncpy(shm->user_list[cur_user].command, login_info.c_str(), sizeof(shm->user_list[cur_user].command) - 1);
+        shm->user_list[cur_user].cur_user = cur_user;
+        shm->user_list[cur_user].is_login_prompt = true;
 
         while (true) {
-            if (shm->is_login_success) {
+            if (shm->user_list[cur_user].is_login_success) {
                 break;
-            } else if (shm->is_login_fail) {
-                std::cout << shm->result;
+            } else if (shm->user_list[cur_user].is_login_fail) {
+                std::cout << shm->user_list[cur_user].result;
                 break;
             }
             Sleep(10);
         }
-        if (shm->is_login_success) {
+        if (shm->user_list[cur_user].is_login_success) {
             // 登录成功
             break;
         }
@@ -82,7 +83,7 @@ int main() {
     std::cout << "I am user " << cur_user << std::endl;
     std::cout << "键入 'help' 获得帮助" << std::endl;
     std::cout << "键入 'exit' 停止程序" << std::endl;
-    std::cout << shm->result;
+    std::cout << shm->user_list[cur_user].result;
     while (true) {
         // 读取结果并打印
         std::string command;
@@ -107,7 +108,7 @@ int main() {
             std::cout << "    adduser: 添加用户" << std::endl;
             std::cout << "<command> -h 查看具体使用情况" << std::endl;
             // 输出shm->result的最后一行
-            std::string result = shm->result;
+            std::string result = shm->user_list[cur_user].result;
             size_t last_newline = result.find_last_of('\n');
             if (last_newline != std::string::npos) {
                 std::cout << result.substr(last_newline + 1);
@@ -116,20 +117,11 @@ int main() {
             }
             continue;
         }
-        if(shm->ready == true){
-            std::cout<<"其他用户正在写，请稍后"<<std::endl;
-            while(1){
-                Sleep(100);
-                if(shm->done){
-                    break;
-                }
-            }
-        }
         // 写入命令并通知后台
-        strncpy(shm->command, command.c_str(), sizeof(shm->command) - 1);
-        shm->cur_user = cur_user;
-        shm->cur_dir_inode_id = cur_dir_inode_id;
-        shm->ready = true;
+        strncpy(shm->user_list[cur_user].command, command.c_str(), sizeof(shm->user_list[cur_user].command) - 1);
+        shm->user_list[cur_user].cur_user = cur_user;
+        shm->user_list[cur_user].cur_dir_inode_id = cur_dir_inode_id;
+        shm->user_list[cur_user].ready = true;
 
 
         if (command == "clear")
@@ -138,13 +130,13 @@ int main() {
         // 重置状态
         while(1){
             Sleep(10);
-            if(shm->done){
+            if(shm->user_list[cur_user].done){
                 break;
             }
         }
-        std::cout << shm->result;
-        cur_dir_inode_id = shm->cur_dir_inode_id;
-        shm->done = false;
+        std::cout << shm->user_list[cur_user].result;
+        cur_dir_inode_id = shm->user_list[cur_user].cur_dir_inode_id;
+        shm->user_list[cur_user].done = false;
     }
 
     // 清理资源
