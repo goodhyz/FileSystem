@@ -80,7 +80,7 @@ int main() {
                 std::cout << shm->user_list[cur_label].result;
                 break;
             }
-            Sleep(10);
+            Sleep(100);
         }
         if (shm->user_list[cur_label].is_login_success) {
             // 登录成功
@@ -90,7 +90,6 @@ int main() {
 
     // 程序的进入页面
     std::cout << welcome1 << std::endl;
-    std::cout << "User Label " << cur_label << std::endl;
     std::cout << "键入 'help' 获得帮助" << std::endl;
     std::cout << "键入 'exit' 停止程序" << std::endl;
     std::cout << shm->user_list[cur_label].result;
@@ -160,8 +159,6 @@ int main() {
                         std::cout << __ERROR << "文件" << file_name << "正在被写入" << __NORMAL << std::endl;
                         std::cout << shm->user_list[cur_label].result;
                         continue;
-                    }else{
-                        std::cout<<"dont worry"<<std::endl;
                     }
                 }
             }
@@ -172,10 +169,12 @@ int main() {
 
         if (command == "clear")
             system("cls");
+        if (command == "shutdown")
+            break;
 
         // 重置状态
         while (1) {
-            Sleep(10);
+            Sleep(100);
             if (shm->user_list[cur_label].done) {
                 break;
             }
@@ -207,6 +206,7 @@ void print_help(SharedMemory *shm, int cur_user) {
     std::cout << "    dir | ls: 显示目录内容" << std::endl;
     std::cout << "    clear | cls: 清空屏幕" << std::endl;
     std::cout << "    adduser: 添加用户" << std::endl;
+    std::cout << "    shutdown: 关闭系统" << std::endl;
     std::cout << "<command> -h 查看具体使用情况" << std::endl;
     // 输出shm->result的最后一行
     std::string result = shm->user_list[cur_user].result;

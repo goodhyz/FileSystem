@@ -30,7 +30,6 @@ int main() {
     }
 
     // 初始化共享内存状态
-    // shm->user_list = new User[10];
     for (int i = 0; i < 10; ++i) {
         // shm->user_list[i].user = User();
 
@@ -75,7 +74,6 @@ int main() {
                 strncpy(shm->user_list[i].result, shell_output.c_str(), sizeof(shm->user_list[i].result) - 1);
                 if (shm->user_list[i].is_login_success) {
                     shm->user_list[std::stoi(user_label)].user = user;
-                    // shell_output = "上次登录时间: " + format_time(sb.last_load_time) + "\n";
                     shell_output = __USER + user.username + "@FileSystem" + __NORMAL + ":" + __PATH + '/' + __NORMAL + "$ ";
                     strncpy(shm->user_list[i].result, shell_output.c_str(), sizeof(shm->user_list[i].result) - 1);
                     continue;
@@ -121,9 +119,9 @@ int main() {
 
                 /*******处理命令********/
                 shell_output = "";
-                if (cmd == "exit" || cmd == "EXIT") {
+                if (cmd == "shutdown" || cmd == "shutdown") {
                     if (options.find("-h") != options.end()) {
-                        shell_output += "exit: 退出程序\n";
+                        shell_output += "shutdown: 退出程序\n";
                         shell_output += "用法: exit\n";
                     } else {
                         shm->user_list[i].user = User();
@@ -158,7 +156,7 @@ int main() {
                             shell_output += "用法: cd [path]\n";
                         } else {
                             uint32_t purpose_id = cur_inode.i_id;
-                            if (arg.empty()) { // no args ,into root
+                            if (arg.empty()) { // 没有参数 进入根目录
                                 cur_inode = root_inode;
                                 path = "/";
                                 break;
@@ -190,7 +188,7 @@ int main() {
                             if (options.find("-m") != options.end()) {
                                 mode = std::stoi(options["-m"]);
                             }
-                            // no args ,raise error
+                            // 没有参数 报错
                             if (arg.empty()) {
                                 std::cout << __ERROR << "请输入目录名" << __NORMAL << std::endl;
                                 shell_output += __ERROR + "请输入目录名" + __NORMAL + "\n";
@@ -256,7 +254,7 @@ int main() {
                         shell_output += "  -rf: 强制递归删除目录\n";
                     } else {
                         while (1) {
-                            // no args ,raise error
+                            // 没有参数
                             if (arg.empty()) {
                                 std::cout << __ERROR << "请输入目录名" << __NORMAL << std::endl;
                                 shell_output += __ERROR + "请输入目录名" + __NORMAL + "\n";
@@ -392,7 +390,7 @@ int main() {
                         shell_output += "  -i <content>: 向文件追加内容\n";
                     } else {
                         while (1) {
-                            // no args ,raise error
+                            // 没有参数
                             if (arg.empty()) {
                                 std::cout << __ERROR << "请输入文件名" << __NORMAL << std::endl;
                                 shell_output += __ERROR + "请输入文件名" + __NORMAL + "\n";
@@ -688,7 +686,6 @@ int main() {
                         shell_output += "clear: 清屏\n";
                         shell_output += "用法: clear\n";
                     } else {
-                        // Sleep(10000);
                         system("cls");
                     }
                 } else if (cmd == "adduser" || cmd == "ADDUSER") {
@@ -725,7 +722,7 @@ int main() {
                 shm->user_list[i].done = true;
                 shm->user_list[i].ready = false;
             }
-            Sleep(10); // 避免无用的循环
+            Sleep(100); // 减少cpu占用
         }
     }
 
