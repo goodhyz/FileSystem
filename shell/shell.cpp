@@ -1,4 +1,5 @@
 #include "share_memory.h"
+#include "shell.h"
 
 int main() {
     // 打开内存映射文件
