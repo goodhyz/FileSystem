@@ -57,30 +57,30 @@ struct User;
 // 函数声明
 //------------------------------------------------------------------------------------------------
 
-std::string format_time(uint32_t time);
-std::string get_absolute_path(uint32_t inode_id);
-bool is_path_dir(const std::string &path, uint32_t &purpose_id, std::string &shell_output);
-bool is_dir_exit(const std::string &path, uint32_t &purpose_id);
-bool is_file_exit(const std::string &name, Inode cur_inode);
-bool is_valid_dir_name(const std::string &dir_name);
-uint32_t get_file_inode_id(const std::string &file_name, Inode &dir_inode);
-uint32_t make_dir_help(const std::string &dir_name, Inode &cur_inode, User cur_user, uint32_t mode = 755);
-std::string read_file(std::string file_path, std::string file_name);
-bool write_file(std::string file_path, std::string file_name, std::string content);
-bool is_dir_empty(const uint32_t dir_inode_id);
-void init_disk();
-std::string show_directory(uint32_t inode_id, User cur_user, bool show_recursion = false);
-bool make_dir(const std::string dir_name, Inode cur_inode, User cur_user,std::string &_shell_output, uint32_t mode = 755);
-bool make_file(const std::string file_name, uint32_t inode_id, User cur_user,std::string &_shell_output, uint32_t mode = 755);
-bool del_file(const std::string file_name, Inode &cur_inode, std::string &shell_output);
-bool del_dir(const uint32_t the_purpose_dir_inode_id, std::string &shell_output);
-bool login(const std::string &user, const std::string &password, std::string &_shell_output, User &__user);
-bool adduser(const std::string &user, const std::string &password, uint32_t uid, uint32_t gid);
-std::string hash_pwd(const std::string &pwd);
-bool is_able_to_write(const uint32_t inode_id, const User cur_user);
-bool is_able_to_read(const uint32_t inode_id, const User cur_user);
-bool is_able_to_execute(const uint32_t inode_id, const User cur_user);
-std::string get_username(uint32_t uid);
+std::string format_time(uint32_t time); //格式化时间
+std::string get_absolute_path(uint32_t inode_id); //获取绝对路径
+bool is_path_dir(const std::string &path, uint32_t &purpose_id, std::string &shell_output);//判断路径是否是目录
+bool is_dir_exit(const std::string &path, uint32_t &purpose_id);//判断目录是否存在
+bool is_file_exit(const std::string &name, Inode cur_inode);//判断文件是否存在
+bool is_valid_dir_name(const std::string &dir_name);//判断目录名是否合法
+uint32_t get_file_inode_id(const std::string &file_name, Inode &dir_inode);//获取文件的inode id
+uint32_t make_dir_help(const std::string &dir_name, Inode &cur_inode, User cur_user, uint32_t mode = 755);//创建目录辅助函数
+std::string read_file(std::string file_path, std::string file_name);//读取文件
+bool write_file(std::string file_path, std::string file_name, std::string content);//写文件
+bool is_dir_empty(const uint32_t dir_inode_id);//判断目录是否为空
+void init_disk();//格式化磁盘
+std::string show_directory(uint32_t inode_id, User cur_user, bool show_recursion = false);//显示目录内容
+bool make_dir(const std::string dir_name, Inode cur_inode, User cur_user,std::string &_shell_output, uint32_t mode = 755);//创建目录
+bool make_file(const std::string file_name, uint32_t inode_id, User cur_user,std::string &_shell_output, uint32_t mode = 755);//创建文件
+bool del_file(const std::string file_name, Inode &cur_inode, std::string &shell_output);//删除文件
+bool del_dir(const uint32_t the_purpose_dir_inode_id, std::string &shell_output);//删除目录
+bool login(const std::string &user, const std::string &password, std::string &_shell_output, User &__user);//登录
+bool adduser(const std::string &user, const std::string &password, uint32_t uid, uint32_t gid);//添加用户
+std::string hash_pwd(const std::string &pwd);//密码哈希
+bool is_able_to_write(const uint32_t inode_id, const User cur_user);//判断是否有写权限
+bool is_able_to_read(const uint32_t inode_id, const User cur_user);//判断是否有读权限
+bool is_able_to_execute(const uint32_t inode_id, const User cur_user);//判断是否有执行权限
+std::string get_username(uint32_t uid);//获取用户名
 
 //------------------------------------------------------------------------------------------------
 // 全局变量
@@ -286,16 +286,20 @@ struct SuperBlock {
      */
     std::string print_super_block() const {
         std::ostringstream oss;
-        oss << "文件系统大小: \t" << fs_size << " Bytes" << std::endl;
-        oss << "总块数: \t" << block_count << std::endl;
-        oss << "可用块数: \t" << free_blocks << std::endl;
-        oss << "总inode数: \t" << inode_count << std::endl;
-        oss << "可用inode数: \t" << free_inodes << std::endl;
-        oss << "创建时间: \t" << format_time(ctime) << std::endl;
+        oss << "模拟文件系统信息:" << std::endl;
+        oss << std::setw(55)<<std::setfill('-') << "-" << std::endl;
+        oss << std::setfill(' ');
+        oss << std::fixed << std::setprecision(2);
+        oss << "使用情况: \t"<< (block_count - free_blocks)/float(block_count) << "\%of " << fs_size/(1024*1024) << "MB"  << "\t块大小: \t" << block_size/1024 << " KB" <<std::endl;
+        oss << "总块数: \t" << block_count << "\t\t总inode数: \t" << inode_count<< std::endl;
+        oss << "可用块数: \t" << free_blocks << "\t\t可用inode数: \t" << free_inodes<< std::endl;
+        oss << "创建时间: \t" << format_time(ctime)<<std::endl;
         oss << "最近加载时间: \t" << format_time(last_load_time) << std::endl;
-        oss << "more..." << std::endl;
+        // oss << "more..." << std::endl;
         return oss.str();
     }
+
+
 };
 
 /**
@@ -549,6 +553,8 @@ void init_disk() {
 /**
  * @brief 显示目录内容
  * @param inode_id 目录的inode_id
+ * @param cur_user 当前用户
+ * @param show_recursion 是否递归显示
  * @return 目录的内容
  */
 std::string show_directory(uint32_t inode_id,User cur_user, bool show_recursion) {
@@ -559,9 +565,11 @@ std::string show_directory(uint32_t inode_id,User cur_user, bool show_recursion)
         return "";
     }
     std::string path = get_absolute_path(inode_id);
-    result << __SUCCESS << "目录: " << path << __NORMAL << std::endl<<std::endl;
+    result << __SUCCESS << "目录: " << path << __NORMAL << std::endl;
+
     IndexBlock index_block = IndexBlock::read_index_block(inode.i_indirect);
-    result << std::left << std::setw(18) << "name" <<std::setw(18)<<"owner"<< std::setw(10) << "mode" << std::setw(10) << "size" << std::setw(10) << "last change" << std::endl;
+    result << std::left << std::setw(18) << "name" <<std::setw(10)<<"owner"<< std::setw(10) << "mode" << std::setw(10) << "size" << std::setw(10) << "last change" << std::endl;
+    result <<std::setfill('-')<<std::setw(68)<<"-"<<std::setfill(' ')<<std::endl;
     // std::cout << std::left << std::setw(10) << "name" << std::setw(10) << "mode" << std::setw(10) << "size" << std::setw(10) << "last change" << std::endl;
     for (uint32_t i = 0; i < 254; ++i) { // 访问索引块
         if (index_block.index[i] == UINT32_MAX) {
@@ -577,6 +585,11 @@ std::string show_directory(uint32_t inode_id,User cur_user, bool show_recursion)
             std::string path_color = __NORMAL;
             if (dir_block.entries[j].type == DIR_TYPE) {
                 if (std::string(dir_block.entries[j].name) != "." && std::string(dir_block.entries[j].name) != "..") {
+                    Inode __inode = Inode::read_inode(dir_block.entries[j].inode_id);
+                    // 判断是否有权限读这个子目录
+                    if (!is_able_to_read(__inode.i_id, cur_user)) {
+                        continue;
+                    }
                     sons.push_back(dir_block.entries[j].inode_id);
                 }
                 path_color = __PATH;
@@ -588,7 +601,7 @@ std::string show_directory(uint32_t inode_id,User cur_user, bool show_recursion)
                 name_color = __USER;
             }
             result<<path_color<< std::left << std::setw(18) << print_name<<__NORMAL 
-            <<name_color<<std::setw(18)<<user_name <<__NORMAL
+            <<name_color<<std::setw(10)<<user_name <<__NORMAL
             << std::setw(10) << temp_inode.i_mode << std::setw(10) << temp_inode.i_size << std::setw(10) << format_time(temp_inode.i_mtime) << std::endl;
             // std::cout << std::left << std::setw(10) << print_name << std::setw(10) << temp_inode.i_mode << std::setw(10) << temp_inode.i_size << std::setw(10) << format_time(temp_inode.i_mtime) << std::endl;
         }
@@ -736,7 +749,7 @@ bool is_dir_exit(const std::string &path, uint32_t &purpose_id) {
                     if (dir_block.entries[j].type == UNDEFINE_TYPE) {
                         continue;
                     }
-                    if (dir_block.entries[j].name == p) {
+                    if (dir_block.entries[j].name == p && dir_block.entries[j].type == DIR_TYPE) {
                         temp_inodeid = dir_block.entries[j].inode_id;
                         found = true;
                         break;
@@ -860,6 +873,8 @@ bool is_valid_dir_name(const std::string &dir_name) {
  * @brief 在当前目录下创建一级目录
  * @param dir_name 目录名
  * @param cur_inode 当前目录的inode
+ * @param cur_user 当前用户
+ * @param mode 权限
  * @return 下一级目录的inode_id
  */
 uint32_t make_dir_help(const std::string &dir_name, Inode &cur_inode, User cur_user, uint32_t mode) {
@@ -948,6 +963,7 @@ uint32_t get_file_inode_id(const std::string &file_name, Inode &dir_inode) {
 /**
  * @brief 读取文件内容
  * @param file_id 文件的inode_id
+ * @param file_name 文件名
  * @return 文件内容
  */
 std::string read_file(std::string file_path, std::string file_name) {
@@ -1122,6 +1138,9 @@ bool make_dir(const std::string dir_name, Inode cur_inode, User cur_user,std::st
  * @brief 创建文件
  * @param file_name 文件名
  * @param inode_id 当前目录的inode
+ * @param cur_user 当前用户
+ * @param _shell_output 输出信息
+ * @param mode 权限
  * @return 是否创建成功
  */
 bool make_file(const std::string file_name, uint32_t inode_id, User cur_user,  std::string &_shell_output,uint32_t mode) {
@@ -1250,10 +1269,9 @@ bool del_file(const std::string file_name, Inode &cur_inode, std::string &_shell
 }
 
 /**
- * @brief 读取文件内容
- * @param file_path 文件的路径
- * @param file_name 文件名
- * @return 文件内容
+ * @brief 判断目录是否为空
+ * @param dir_inode_id 目标目录的inode_id
+ * @return 是否为空
  */
 bool is_dir_empty(const uint32_t dir_inode_id) {
     Inode dir_inode = Inode::read_inode(dir_inode_id);
@@ -1357,6 +1375,11 @@ bool del_dir(const uint32_t dir_inode_id, std::string &_shell_output) {
 
 /**
  * @brief 登录
+ * @param user 用户名
+ * @param password 密码
+ * @param _shell_output 输出信息
+ * @param __user 用户
+ * @return 是否登录成功
  */
 bool login(const std::string &user, const std::string &password, std::string &_shell_output, User &__user) {
     // 创建一个账号密码map
@@ -1434,6 +1457,14 @@ std::string hash_pwd(const std::string &pwd) {
     return sha256.final();
 }
 
+/**
+ * @brief 添加用户
+ * @param user 用户名
+ * @param password 密码
+ * @param uid 用户id
+ * @param gid 用户组id
+ * @return 是否添加成功
+ */
 bool adduser(const std::string &user, const std::string &password, uint32_t uid, uint32_t gid) {
     // 定义一个加密函数
     std::string pwd;

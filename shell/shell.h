@@ -18,6 +18,7 @@
 #include <map>
 #include <windows.h>
 #include <fstream>
+#include <iomanip>
 #include "share_memory.h"
 
 //------------------------------------------------------------------------------------------------

@@ -127,6 +127,7 @@ int main() {
                         shm->user_list[i].user = User();
                         shm->user_list[i].done = true;
                         shm->user_list[i].ready = false;
+                        goto LABEL;
                         break;
                     }
                 } else if (cmd == "init" || cmd == "INIT") {
@@ -148,6 +149,13 @@ int main() {
                     } else {
                         sb.save_super_block();
                         shell_output = sb.print_super_block();
+                        int user_count = 0;
+                        for (int i = 0; i < 10; ++i) {
+                            if (shm->user_list[i].is_login_success) {
+                                ++user_count;
+                            }
+                        }
+                        shell_output += "当前登录用户数: " + std::to_string(user_count) + "\n\n";
                     }
                 } else if (cmd == "cd" || cmd == "CD") {
                     while (1) {
@@ -584,6 +592,7 @@ int main() {
                                 }
                                 clear_file(target_path, target_name);
                                 write_file(target_path, target_name, file_content);
+                                Sleep(10000);
                                 shm->open_file_table.close_file(file_id);
                             } else { // 文件不存在
                                 if (!is_able_to_write(start_id, user)) {
@@ -600,7 +609,7 @@ int main() {
                                 }
                                 write_file(target_path, target_name, file_content);
                             }
-                            Sleep(10000);
+                            // Sleep(10000);
                             std::cout << __SUCCESS << "文件" << target_name << "复制成功" << __NORMAL << std::endl;
                             shell_output += __SUCCESS + "文件" + target_name + "复制成功" + __NORMAL + "\n";
                             break;
@@ -658,6 +667,7 @@ int main() {
                                 } else {
                                     std::cout << __ERROR << "文件" << file_name << "不存在" << __NORMAL << std::endl;
                                     shell_output += __ERROR + "文件" + file_name + "不存在" + __NORMAL + "\n";
+                                    shm->open_file_table.close_file(file_id);
                                 }
                             }
                         }
@@ -667,6 +677,7 @@ int main() {
                         shell_output += "check: 检查文件系统\n";
                         shell_output += "用法: check\n";
                     } else {
+                        sb.save_super_block();
                         uint32_t used_block = block_bitmap.bitmap.count();
                         uint32_t used_inode = inode_bitmap.bitmap.count();
                         if (used_block == sb.block_count - sb.free_blocks && used_inode == sb.inode_count - sb.free_inodes) {
@@ -738,6 +749,7 @@ int main() {
         }
     }
 
+    LABEL:
     // 退出程序前保存超级块
     sb.last_load_time = load_time;
     sb.save_super_block();

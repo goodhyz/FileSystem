@@ -92,16 +92,24 @@ int main() {
     // 程序的进入页面
     std::cout << welcome1 << std::endl;
     std::cout << "键入 'help' 获得帮助" << std::endl;
-    std::cout << "键入 'exit' 停止程序" << std::endl;
+    std::cout << "键入 'exit' 退出登录" << std::endl;
     std::cout << shm->user_list[cur_label].result;
     while (true) {
         // 读取结果并打印
         std::string command;
         std::getline(std::cin, command);
-        if (command == "exit")
-
+        if (command == "exit"||command == "EXIT") {
+            // 清除用户信息
+            shm->user_list[cur_label].is_login_success = false;
+            shm->user_list[cur_label].is_login_fail = false;
+            shm->user_list[cur_label].is_login_prompt = false;
+            shm->user_list[cur_label].done = false;
+            shm->user_list[cur_label].ready = false;
+            shm->user_list[cur_label].cur_user = -1;
+            shm->user_list[cur_label].cur_dir_inode_id = 0;
             break;
-        if (command == "help") {
+        }
+        if (command == "help"||command == "HELP") {
             print_help((SharedMemory *)shm, cur_label);
             continue;
         }
@@ -168,9 +176,9 @@ int main() {
         shm->user_list[cur_label].cur_user = cur_label;
         shm->user_list[cur_label].ready = true;
 
-        if (command == "clear")
+        if (command == "clear"||command == "cls"||command == "CLEAR"||command == "CLS") 
             system("cls");
-        if (command == "shutdown")
+        if (command == "shutdown"||command == "SHUTDOWN") 
             break;
 
         // 重置状态
@@ -193,22 +201,24 @@ int main() {
 
 void print_help(SharedMemory *shm, int cur_user) {
     std::cout << "命令列表:" << std::endl;
-    std::cout << "    help: 显示帮助信息" << std::endl;
-    std::cout << "    exit: 退出程序" << std::endl;
-    std::cout << "    info: 显示系统信息" << std::endl;
-    std::cout << "    cd: 切换目录" << std::endl;
-    std::cout << "    md: 创建目录" << std::endl;
-    std::cout << "    rd: 删除目录" << std::endl;
-    std::cout << "    newfile: 创建新文件" << std::endl;
-    std::cout << "    cat: 显示文件内容或向文件追加内容" << std::endl;
-    std::cout << "    copy: 复制文件" << std::endl;
-    std::cout << "    del: 删除文件" << std::endl;
-    std::cout << "    check: 检查文件或目录" << std::endl;
-    std::cout << "    dir | ls: 显示目录内容" << std::endl;
-    std::cout << "    clear | cls: 清空屏幕" << std::endl;
-    std::cout << "    adduser: 添加用户" << std::endl;
-    std::cout << "    shutdown: 关闭系统" << std::endl;
-    std::cout << "<command> -h 查看具体使用情况" << std::endl;
+        std::cout << std::setfill('-') << std::setw(45) << "-" << std::setfill(' ') << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "help: "<<__NORMAL<<"显示帮助信息" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "exit: "<<__NORMAL<<"退出登录" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "info: "<<__NORMAL<<"显示系统信息" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "cd: "<<__NORMAL<<"切换目录" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "md: "<<__NORMAL<<"创建目录" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "rd: "<<__NORMAL<<"删除目录" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "newfile: "<<__NORMAL<<"创建新文件" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "cat: "<<__NORMAL<<"显示文件内容或向文件追加内容" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "copy: "<<__NORMAL<<"复制文件" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "del: "<<__NORMAL<<"删除文件" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "check: "<<__NORMAL<<"检查文件或目录" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "dir|ls: "<<__NORMAL<<"显示目录内容" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "clear|cls: "<<__NORMAL<<"清空屏幕" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "adduser: "<<__NORMAL<<"添加用户" << std::endl;
+    std::cout <<__SUCCESS<<std::left<<std::setw(12)<< "shutdown: "<<__NORMAL<<"退出登录并关闭系统" << std::endl;
+    std::cout << "使用"<<__SUCCESS<<"<command> -h "<<__NORMAL<<"查看命令的具体使用方法" << std::endl;
+    std::cout<< "注意：命令不区分大小写" << std::endl;
     // 输出shm->result的最后一行
     std::string result = shm->user_list[cur_user].result;
     size_t last_newline = result.find_last_of('\n');

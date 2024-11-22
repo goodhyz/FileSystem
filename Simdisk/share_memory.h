@@ -127,7 +127,7 @@ struct SharedMemory {
      */
     int get_free_user() {
         for (int i = 0; i < 10; ++i) {
-            if (user_list[i].user.username.empty()) {
+            if (user_list[i].cur_user == -1) {
                 return i;
             }
         }
