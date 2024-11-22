@@ -2,7 +2,7 @@
  * @file share_memory.h
  * @brief 共享内存的组成结构
  * @date 2024-11-20
- * @auther Hu Yuzhi
+ * @author Hu Yuzhi
  */
 
 #pragma once
@@ -113,10 +113,8 @@ struct OpenedFileTable {
 
 /**
  * 共享内存结构体, 用于进程间通信
- * command: 命令
- * result: 服务端返回的结果
- * ready: 客户端是否给出命令
- * done: 服务端是否处理完命令
+ * UserShareMemory: 每个用户的信息
+ * OpenedFileTable: 打开文件表
  */
 struct SharedMemory {
     UserShareMemory user_list[10];   // 最多10个用户

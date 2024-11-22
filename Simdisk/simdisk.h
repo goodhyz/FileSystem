@@ -704,7 +704,7 @@ bool is_path_dir(const std::string &path, uint32_t &purpose_id, std::string &_sh
 /**
  * @brief 确定目录是否存在
  * 如果目录存在则将目标文件夹的id存储在purpose_id中，并返回True
- * 如果目录不存在则返回False
+ * 如果目录不存在则返回False, 并存储最后一个存在目录的purpose_id
  * @param path 目录路径
  * @param purpose_id 目标文件夹的id
  * @return True 或者 False
