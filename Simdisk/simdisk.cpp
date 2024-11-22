@@ -353,22 +353,16 @@ int main() {
                                     shell_output += __ERROR + "你没有权限创建" + arg + __NORMAL + "\n";
                                     break;
                                 }
-                                Inode __dir_inode = Inode::read_inode(start_id);
-                                uint32_t file_id = get_file_inode_id(file_name, __dir_inode);
-                                if (shm->open_file_table.is_writing(file_id)) {
-                                    std::cout << __ERROR << "文件" << file_name << "正在被写入" << __NORMAL << std::endl;
-                                    shell_output += __ERROR + "文件" + file_name + "正在被写入" + __NORMAL + "\n";
-                                    break;
-                                } else {
-                                    shm->open_file_table.add_file(file_id, true);
-                                }
                                 if(!make_file(file_name, start_id,  user,shell_output, mode))
                                 {
                                     std::cout << __ERROR << "文件" << file_name << "创建失败" << __NORMAL << std::endl;
                                     shell_output += __ERROR + "文件" + file_name + "创建失败" + __NORMAL + "\n";
-                                    shm->open_file_table.close_file(file_id);
                                     break;
                                 }   
+                                Inode __dir_inode = Inode::read_inode(start_id);
+                                uint32_t file_id = get_file_inode_id(file_name, __dir_inode);
+                                shm->open_file_table.add_file(file_id, true);
+                                Sleep(5000);
                                 shm->open_file_table.close_file(file_id);
                             } else { // 目录不存在
                                 if (!is_able_to_write(start_id, user)) {
@@ -378,26 +372,19 @@ int main() {
                                 }
                                 if (make_dir(file_path, root_inode, user,shell_output, mode)) {
                                     is_dir_exit(file_path, start_id); // 找到目录
-                                    Inode __dir_inode = Inode::read_inode(start_id);
-                                    uint32_t file_id = get_file_inode_id(file_name, __dir_inode);
-                                    if (shm->open_file_table.is_writing(file_id)) {
-                                        std::cout << __ERROR << "文件" << file_name << "正在被写入" << __NORMAL << std::endl;
-                                        shell_output += __ERROR + "文件" + file_name + "正在被写入" + __NORMAL + "\n";
-                                        break;
-                                    } else {
-                                        shm->open_file_table.add_file(file_id, true);
-                                    }
-
+                                    
                                     if(!make_file(file_name, start_id, user,shell_output, mode)){
                                         std::cout << __ERROR << "文件" << file_name << "创建失败" << __NORMAL << std::endl;
                                         shell_output += __ERROR + "文件" + file_name + "创建失败" + __NORMAL + "\n";
-                                        shm->open_file_table.close_file(file_id);
                                         break;
                                     }
+                                    Inode __dir_inode = Inode::read_inode(start_id);
+                                    uint32_t file_id = get_file_inode_id(file_name, __dir_inode);
+                                    shm->open_file_table.add_file(file_id, true);
+                                    Sleep(5000);
                                     shm->open_file_table.close_file(file_id);
                                 }
                             }
-                            Sleep(10000);
                             shell_output += __SUCCESS + "文件" + file_name + "创建成功" + __NORMAL + "\n";
                             break;
                         }
@@ -462,11 +449,10 @@ int main() {
                                         break;
                                     } else {
                                         shm->open_file_table.add_file(file_id, true);
-                                        
+                                        Sleep(5000);
                                         std::cout<<"writing"<<file_name<<std::endl;
                                     }
                                     write_file(file_path, file_name, options["-i"]);
-                                    Sleep(10000);
                                     shell_output += __SUCCESS + "文件" + file_name + "写入成功" + __NORMAL + "\n";
                                     shm->open_file_table.close_file(file_id);
                                 }
@@ -589,10 +575,10 @@ int main() {
                                     break;
                                 } else {
                                     shm->open_file_table.add_file(file_id, true);
+                                    Sleep(5000);
                                 }
                                 clear_file(target_path, target_name);
                                 write_file(target_path, target_name, file_content);
-                                Sleep(10000);
                                 shm->open_file_table.close_file(file_id);
                             } else { // 文件不存在
                                 if (!is_able_to_write(start_id, user)) {
@@ -651,6 +637,7 @@ int main() {
                                     break;
                                 } else {
                                     shm->open_file_table.add_file(file_id, true);
+                                    Sleep(5000);
                                 }
                                 if (is_file_exit(file_name, dir_inode)) {
                                     if (!is_able_to_write(get_file_inode_id(file_name, dir_inode), user)) {
