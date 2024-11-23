@@ -14,6 +14,14 @@ BlockBitmap block_bitmap;
 
 // 服务端程序的逻辑
 int main() {
+    std::string disk = disk_path;
+    std::ifstream file(disk);
+    if (!file) {
+        std::cout<<"未找到磁盘文件，创建中..."<<std::endl;
+        init_disk();
+        std::cout<<"文件系统初始化成功"<<std::endl;
+    }
+    file.close();
     // 创建内存映射文件
     HANDLE hMapFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(SharedMemory), "SimdiskSharedMemory");
     if (hMapFile == NULL) {

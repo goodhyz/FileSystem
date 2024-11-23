@@ -18,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <filesystem>
 
 //------------------------------------------------------------------------------------------------
 // 文件系统的一些参数
@@ -497,6 +498,7 @@ std::string format_time(uint32_t raw_time) {
  * 初始化磁盘，写入100MB的0x00数据，初始化超级块，修改位图信息，创建根目录
  */
 void init_disk() {
+    std::filesystem::create_directories(std::filesystem::path(disk_path).parent_path());
     std::ofstream file(disk_path, std::ios::binary | std::ios::out);
     // 初始化 写入 100MB 的0x00数据
     const int fileSize = FS_SIZE;
