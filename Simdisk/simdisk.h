@@ -1490,6 +1490,7 @@ bool adduser(const std::string &user, const std::string &password, uint32_t uid,
     }
     std::string content = user + ":" + pwd + ":" + std::to_string(uid) + ":" + std::to_string(gid) + "\n";
     if (user != "root") {
+
         std::string home_path = "/home/" + user + "/";
         User new_user(user, uid, gid);
         if (!is_dir_exit(home_path, start_id)) {
@@ -1497,6 +1498,10 @@ bool adduser(const std::string &user, const std::string &password, uint32_t uid,
         }
     }else{
         std::string home_path = "/root/";
+        if (!is_dir_exit(home_path, start_id)) {
+            make_dir(home_path, root_inode, cur_user, useless, 755);
+        }
+        home_path = "/home/";
         if (!is_dir_exit(home_path, start_id)) {
             make_dir(home_path, root_inode, cur_user, useless, 755);
         }

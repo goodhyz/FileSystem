@@ -122,7 +122,7 @@ int main() {
                 if (cmd == "shutdown" || cmd == "shutdown") {
                     if (options.find("-h") != options.end()) {
                         shell_output += "shutdown: 退出程序\n";
-                        shell_output += "用法: exit\n";
+                        shell_output += "用法: shutdown\n";
                     } else {
                         shm->user_list[i].user = User();
                         shm->user_list[i].done = true;
@@ -643,6 +643,7 @@ int main() {
                                     if (!is_able_to_write(get_file_inode_id(file_name, dir_inode), user)) {
                                         std::cout << __ERROR << "你没有权限删除" << file_name << __NORMAL << std::endl;
                                         shell_output += __ERROR + "你没有权限删除" + file_name + __NORMAL + "\n";
+                                        shm->open_file_table.close_file(file_id);
                                     } else if (del_file(file_name, dir_inode, shell_output)) {
                                         std::cout << __SUCCESS << "文件" << file_name << "删除成功" << __NORMAL << std::endl;
                                         shell_output += __SUCCESS + "文件" + file_name + "删除成功" + __NORMAL + "\n";
@@ -650,6 +651,7 @@ int main() {
                                     } else {
                                         std::cout << __ERROR << "文件" << file_name << "删除失败" << __NORMAL << std::endl;
                                         shell_output += __ERROR + "文件" + file_name + "删除失败" + __NORMAL + "\n";
+                                        shm->open_file_table.close_file(file_id);
                                     }
                                 } else {
                                     std::cout << __ERROR << "文件" << file_name << "不存在" << __NORMAL << std::endl;

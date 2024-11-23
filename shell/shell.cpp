@@ -162,7 +162,7 @@ int main() {
             if (is_dir_exit(file_path, start_id)) { // 目录存在
                 Inode __dir_inode = Inode::read_inode(start_id);
                 uint32_t file_id = get_file_inode_id(file_name, __dir_inode);
-                if ((cmd == "cat" && !options["-i"].empty()) || cmd == "copy" || cmd == "del" || cmd == "newfile") {
+                if (cmd == "cat" || cmd == "copy" || cmd == "del" || cmd == "newfile") {
                     if (shm->open_file_table.is_writing(file_id)) {
                         std::cout << __ERROR << "文件" << file_name << "正在被写入" << __NORMAL << std::endl;
 
@@ -224,6 +224,7 @@ void print_help(SharedMemory *shm, int cur_user) {
     std::cout << __SUCCESS << std::left << std::setw(12) << "clear|cls: " << __NORMAL << "清空屏幕" << std::endl;
     std::cout << __SUCCESS << std::left << std::setw(12) << "adduser: " << __NORMAL << "添加用户" << std::endl;
     std::cout << __SUCCESS << std::left << std::setw(12) << "shutdown: " << __NORMAL << "退出登录并关闭系统" << std::endl;
+    std::cout << __SUCCESS << std::left << std::setw(12) << "init: " << __NORMAL << "格式化磁盘" << std::endl;
     std::cout << "使用" << __SUCCESS << "<command> -h " << __NORMAL << "查看命令的具体使用方法" << std::endl;
     std::cout << "注意：命令不区分大小写" << std::endl;
     // 输出shm->result的最后一行
